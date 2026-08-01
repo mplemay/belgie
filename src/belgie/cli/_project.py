@@ -5,6 +5,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final
 
 import rtoml
+import tomlkit
+from tomlkit.exceptions import TOMLKitError
+from tomlkit.items import InlineTable, String, StringType, Table
 
 from belgie._pyproject import (
     BelgieToolConfig,
@@ -15,8 +18,10 @@ from belgie._pyproject import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Mapping
     from pathlib import Path
+
+    from tomlkit.toml_document import TOMLDocument
 
 LOCKFILE_NAME: Final[str] = "deno.lock"
 PYPROJECT_NAME: Final[str] = "pyproject.toml"
@@ -83,31 +88,86 @@ def read_pyproject_document(root: Path) -> dict[str, Any]:
     return document
 
 
-def write_pyproject_document(root: Path, document: dict[str, Any]) -> None:
+def update_belgie_dependencies(
+    root: Path,
+    updates: Mapping[str, str],
+    *,
+    validate: bool = False,
+) -> None:
     path = root / PYPROJECT_NAME
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(rtoml.dumps(_reorder_for_rtoml(document), pretty=True), encoding="utf-8")
+    if not path.is_file():
+        msg = f"No pyproject.toml found at {root}"
+        raise ProjectError(msg)
+    try:
+        document = tomlkit.parse(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, TOMLKitError) as exc:
+        msg = f"Invalid pyproject.toml at {path}: {exc}"
+        raise ProjectError(msg) from exc
+
+    dependencies = _ensure_tomlkit_dependencies_table(document)
+    preferred_literal = _preferred_literal(dependencies)
+    for alias, value in updates.items():
+        if validate:
+            if not alias.strip():
+                msg = "Dependency alias must not be empty"
+                raise ProjectError(msg)
+            if not value.strip():
+                msg = "Dependency specifier must not be empty"
+                raise ProjectError(msg)
+        _set_dep_string(dependencies, alias, value, preferred_literal=preferred_literal)
+
+    path.write_text(tomlkit.dumps(document), encoding="utf-8")
 
 
-def _is_table_like(value: object) -> bool:
-    if isinstance(value, dict):
-        return True
-    return isinstance(value, list) and bool(value) and all(isinstance(item, dict) for item in value)
+def _is_literal_string(value: object) -> bool:
+    return isinstance(value, String) and value.type in (StringType.SLL, StringType.MLL)
 
 
-def _reorder_for_rtoml(value: object) -> object:
-    # rtoml emits list[dict] as [[array-of-tables]]; TOML requires those after
-    # sibling key/values, so put nested tables / AoTs last within each table.
-    if isinstance(value, dict):
-        values: list[tuple[str, object]] = []
-        tables: list[tuple[str, object]] = []
-        for key, item in value.items():
-            reordered = _reorder_for_rtoml(item)
-            (tables if _is_table_like(item) else values).append((str(key), reordered))
-        return dict([*values, *tables])
-    if isinstance(value, list):
-        return [_reorder_for_rtoml(item) for item in value]
-    return value
+def _preferred_literal(dependencies: Table | InlineTable) -> bool:
+    for value in dependencies.values():
+        if isinstance(value, String):
+            return _is_literal_string(value)
+    return False
+
+
+def _set_dep_string(
+    dependencies: Table | InlineTable,
+    alias: str,
+    value: str,
+    *,
+    preferred_literal: bool,
+) -> None:
+    if alias in dependencies and isinstance(current := dependencies[alias], String):
+        dependencies[alias] = tomlkit.string(value, literal=_is_literal_string(current))
+        return
+    dependencies[alias] = tomlkit.string(value, literal=preferred_literal)
+
+
+def _ensure_tomlkit_dependencies_table(document: TOMLDocument) -> Table | InlineTable:
+    tool = document.get(TOOL_TABLE)
+    if tool is None:
+        tool = tomlkit.table(is_super_table=True)
+        document[TOOL_TABLE] = tool
+    elif not isinstance(tool, (Table, InlineTable)):
+        msg = "[tool] must be a table"
+        raise ProjectError(msg)
+
+    belgie = tool.get(BELGIE_TABLE)
+    if belgie is None:
+        belgie = tomlkit.table(is_super_table=True)
+        tool[BELGIE_TABLE] = belgie
+    elif not isinstance(belgie, (Table, InlineTable)):
+        msg = "[tool.belgie] must be a table"
+        raise ProjectError(msg)
+
+    dependencies = belgie.get(DEPENDENCIES_TABLE)
+    if dependencies is None:
+        dependencies = tomlkit.table()
+        belgie[DEPENDENCIES_TABLE] = dependencies
+    elif not isinstance(dependencies, (Table, InlineTable)):
+        msg = "[tool.belgie.dependencies] must be a table"
+        raise ProjectError(msg)
+    return dependencies
 
 
 def set_dependency_in_document(

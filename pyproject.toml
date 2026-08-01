@@ -13,6 +13,7 @@ email = 'mplemay@users.noreply.github.com'
 [project.optional-dependencies]
 cli = [
     'rtoml>=0.13,<1',
+    "tomlkit>=0.13,<1",
     'typer>=0.20,<1',
 ]
 pydantic-ai = ['pydantic-ai-slim[openai]>=2,<3']
@@ -45,6 +46,7 @@ dev = [
     'ty>=0.0.43',
     "uvloop>=0.22.1 ; sys_platform != 'win32'",
     'zizmor>=1.25.2',
+    "tomlkit>=0.13,<1",
 ]
 
 [build-system]
