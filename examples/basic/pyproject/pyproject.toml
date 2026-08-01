@@ -19,11 +19,10 @@ requires = ["uv_build>=0.11,<0.12"]
 build-backend = "uv_build"
 
 [tool.belgie.dependencies]
-std_path = "jsr:@std/path@^1"
+std_path = "jsr:@std/path@^1.1.6"
 
 [tool.uv]
 exclude-newer = "7 days"
 exclude-newer-package = { belgie = false }
-
 [tool.uv.sources]
 belgie = { path = "../../../", editable = true }

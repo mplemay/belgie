@@ -673,8 +673,8 @@ describe("inline source transform", () => {
   });
 
   it.each([
-    ["npm:react@19.2.6", "react"],
-    ["npm:react-dom@19.2.6/client", "react-dom/client"],
+    ["npm:react@19.2.8", "react"],
+    ["npm:react-dom@19.2.8/client", "react-dom/client"],
     ["npm:@scope/package@2.0.0", "@scope/package"],
     ["npm:@scope/package@2.0.0/subpath", "@scope/package/subpath"],
     ["react", undefined],
@@ -702,7 +702,7 @@ describe("inline source transform", () => {
     const callerId = (await resolve.call(context, "virtual:belgie-render/caller", undefined, {})) as string | null;
     const apiId = (await resolve.call(context, CLIENT_RENDER_ID, undefined, {})) as string | null;
     const packageApiId = (await resolve.call(context, "npm:@belgie/render@0.1.0", undefined, {})) as string | null;
-    const npmId = (await resolve.call(context, "npm:react@19.2.6", undefined, {})) as {
+    const npmId = (await resolve.call(context, "npm:react@19.2.8", undefined, {})) as {
       id: string;
     } | null;
     const unknownId = (await resolve.call(context, "unknown", undefined, {})) as string | null;

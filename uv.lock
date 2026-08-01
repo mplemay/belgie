@@ -117,7 +117,7 @@ provides-extras = ["cli", "pydantic-ai", "langchain", "mcp"]
 [package.metadata.requires-dev]
 dev = [
     { name = "anyio", specifier = ">=4" },
-    { name = "fastapi", specifier = ">=0.128.0" },
+    { name = "fastapi", specifier = ">=0.140.0" },
     { name = "langchain", specifier = ">=1,<2" },
     { name = "langchain-openai", specifier = ">=0.3,<1" },
     { name = "mcp", specifier = ">=2" },
@@ -126,10 +126,10 @@ dev = [
     { name = "pydantic-ai-slim", extras = ["openai"], specifier = ">=2,<3" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "rtoml", specifier = ">=0.13,<1" },
-    { name = "ruff", specifier = ">=0.15.16" },
-    { name = "rumdl", specifier = ">=0.2.7" },
+    { name = "ruff", specifier = ">=0.16.0" },
+    { name = "rumdl", specifier = ">=0.2.43" },
     { name = "tomlkit", specifier = ">=0.13,<1" },
-    { name = "ty", specifier = ">=0.0.43" },
+    { name = "ty", specifier = ">=0.0.63" },
     { name = "typer", specifier = ">=0.20,<1" },
     { name = "uvloop", marker = "sys_platform != 'win32'", specifier = ">=0.22.1" },
     { name = "zizmor", specifier = ">=1.25.2" },

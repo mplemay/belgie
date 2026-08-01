@@ -322,7 +322,7 @@ export default function run() {
 def test_installed_environment_runs_trivial_inline_script(tmp_path: Path):
     project = tmp_path / "project"
     project.mkdir()
-    with Environment({"react": "19.2.6"}, path=project) as env:
+    with Environment({"react": "19.2.8"}, path=project) as env:
         env.install()
         with Runtime(env=env) as runtime:
             assert runtime(Script("export default () => 42"))() == 42
@@ -331,7 +331,7 @@ def test_installed_environment_runs_trivial_inline_script(tmp_path: Path):
 async def test_installed_environment_runs_trivial_inline_script_async(tmp_path: Path):
     project = tmp_path / "project"
     project.mkdir()
-    async with Environment({"react": "19.2.6"}, path=project) as env:
+    async with Environment({"react": "19.2.8"}, path=project) as env:
         await env.install()
         async with Runtime(env=env) as runtime:
             assert await runtime(Script("export default async () => 42"))() == 42
@@ -340,7 +340,7 @@ async def test_installed_environment_runs_trivial_inline_script_async(tmp_path: 
 def test_installed_environment_runs_react_version_inline_script(tmp_path: Path):
     project = tmp_path / "project"
     project.mkdir()
-    react_version = "19.2.6"
+    react_version = "19.2.8"
     source = f'import react from "npm:react@{react_version}"; export default () => react.version;'
     with Environment({"react": react_version}, path=project) as env:
         env.install()
@@ -351,7 +351,7 @@ def test_installed_environment_runs_react_version_inline_script(tmp_path: Path):
 async def test_installed_environment_runs_react_version_inline_script_async(tmp_path: Path):
     project = tmp_path / "project"
     project.mkdir()
-    react_version = "19.2.6"
+    react_version = "19.2.8"
     source = f'import react from "npm:react@{react_version}"; export default async () => react.version;'
     async with Environment({"react": react_version}, path=project) as env:
         await env.install()

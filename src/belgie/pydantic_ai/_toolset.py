@@ -5,7 +5,6 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Final, Self, cast
 
 from pydantic_ai import AbstractToolset, RunContext, ToolDefinition, WrapperToolset
-from pydantic_ai._deferred_capabilities import DEFERRED_CAPABILITY_TOOL_METADATA_KEY
 from pydantic_ai.exceptions import ModelRetry, UserError
 from pydantic_ai.messages import ToolReturn
 from pydantic_ai.tools import AgentDepsT
@@ -100,16 +99,13 @@ class BelgieToolset(_BelgieOptions, WrapperToolset[AgentDepsT]):
     async def get_tools(self, ctx: RunContext[AgentDepsT]) -> dict[str, ToolsetTool[AgentDepsT]]:
         wrapped_tools = await self.wrapped.get_tools(ctx)
         tools = {name: tool for name, tool in wrapped_tools.items() if name == LOAD_CAPABILITY_TOOL_NAME}
-        metadata: dict[str, Any] = dict(RUN_CODE_METADATA)
-        if self.defer_loading:
-            metadata[DEFERRED_CAPABILITY_TOOL_METADATA_KEY] = True
         tools[RUN_CODE_TOOL_NAME] = ToolsetTool(
             toolset=self,
             tool_def=ToolDefinition(
                 name=RUN_CODE_TOOL_NAME,
                 description=resolved_description(self),
                 parameters_json_schema=RUN_CODE_JSON_SCHEMA,
-                metadata=metadata,
+                metadata=dict(RUN_CODE_METADATA),
                 sequential=True,
                 timeout=self.timeout,
                 defer_loading=self.defer_loading,
