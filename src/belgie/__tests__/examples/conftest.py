@@ -9,8 +9,6 @@ from typing import Final
 
 import pytest
 
-from belgie.mcp import _extension
-
 EXAMPLES_ROOT: Final[Path] = Path(__file__).resolve().parents[4] / "examples"
 
 
@@ -67,6 +65,8 @@ def langchain_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
 
 @pytest.fixture
 def mcp_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
+    from belgie.mcp import _extension  # noqa: PLC0415
+
     html = "<!doctype html><html><body>mcp</body></html>"
     monkeypatch.setattr(_extension, "ensure_vite_dev_server", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
@@ -79,6 +79,8 @@ def mcp_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
 
 @pytest.fixture
 def shadcn_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
+    from belgie.mcp import _extension  # noqa: PLC0415
+
     html = "<!doctype html><html><body>shadcn</body></html>"
     monkeypatch.setattr(_extension, "ensure_vite_dev_server", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
@@ -91,6 +93,8 @@ def shadcn_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
 
 @pytest.fixture
 def tanstack_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
+    from belgie.mcp import _extension  # noqa: PLC0415
+
     html = "<!doctype html><html><body>tanstack</body></html>"
     monkeypatch.setattr(_extension, "ensure_vite_dev_server", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(

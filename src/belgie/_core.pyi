@@ -4,7 +4,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, Literal, Self, overload
 
-type JsonPrimitive = None | bool | int | float | str
+type JsonPrimitive = bool | int | float | str | None
 type JsonInput = JsonPrimitive | list[JsonInput] | tuple[JsonInput, ...] | dict[str, JsonInput]
 type JsonOutput = JsonPrimitive | list[JsonOutput] | dict[str, JsonOutput]
 type JsonObject = dict[str, JsonOutput]
