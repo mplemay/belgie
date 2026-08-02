@@ -40,12 +40,17 @@ and dictionaries with string keys.
 
 | Use | Runtime form | What it provides |
 | --- | --- | --- |
-| A short script with inline imports | `Runtime()` | A temporary workspace and the default runtime options. |
+| A short script with inline imports | `Runtime()` | The current Python working directory and the default runtime options; it does not create a temporary workspace. |
 | Shared dependencies or a lockfile | `Runtime(env=environment)` | The workspace and dependency resolution owned by an [`Environment`](environment.md). |
 | File-based modules in a project | `Runtime.from_folder(path)` | A project folder used to resolve local imports and runtime configuration. |
 
 Use an `Environment` when dependency setup is part of your application. Use `from_folder()` when
 the project directory itself is the boundary for local files.
+
+`Runtime()` uses the Python process's current working directory for relative imports and filesystem
+access. Files written there can persist after the runtime exits. Use an [`Environment`](environment.md)
+with an explicit path when the workspace should be a named project directory, or use a temporary
+directory managed by your application when the workspace should be disposable.
 
 ## Synchronous and asynchronous runtimes
 
