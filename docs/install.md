@@ -1,7 +1,7 @@
 # Install Belgie
 
-Install Belgie when you need to run JavaScript or TypeScript from Python. The base package contains
-the embedded runtime and does not install a separate Node.js runtime.
+Install Belgie when Python needs to run JavaScript, TypeScript, or TSX. The base package contains
+the embedded Deno-powered runtime and does not install a separate Node.js runtime.
 
 ## Core installation
 
@@ -11,18 +11,18 @@ uv add belgie
 
 Belgie supports Python 3.12 through 3.14.
 
-## Extras
+## Choose an extra
 
 Install only the integration dependencies your project uses.
 
 | Extra | Adds | Use it for |
 | --- | --- | --- |
-| `cli` | `typer`, `rtoml`, and `tomlkit` | Project dependency commands such as `belgie lock` and `belgie run` |
-| `mcp` | MCP server and MCP Apps types | Python MCP tools with `BelgieExtension` |
-| `pydantic-ai` | Pydantic AI with the OpenAI provider | `BelgieCapability` |
-| `langchain` | LangChain | `BelgieMiddleware` |
+| `cli` | `typer`, `rtoml`, and `tomlkit` | Project dependency commands such as `belgie lock` and `belgie run`. |
+| `mcp` | MCP server and MCP Apps types | Python MCP tools with `BelgieExtension`. |
+| `pydantic-ai` | Pydantic AI with the OpenAI provider | `BelgieCapability`. |
+| `langchain` | LangChain | `BelgieMiddleware`. |
 
-For a typical MCP Apps project, install both the MCP and CLI extras:
+Choose the smallest extra set that covers your workflow:
 
 ```bash
 uv add "belgie[mcp,cli]"
@@ -61,7 +61,8 @@ asyncio.run(main())
 PY
 ```
 
-The command should print `{'status': 'ok'}`.
+The command should print `{'status': 'ok'}`. If the command fails, confirm that you are running it
+inside the project environment where Belgie was installed before adding an integration.
 
 ## Optional tooling skill
 
@@ -77,5 +78,6 @@ The skill is not required to import or run Belgie.
 ## Further reading
 
 - [Runtime](runtime.md) for direct JavaScript and TypeScript execution.
+- [Environment](environment.md) for named dependencies and lockfiles.
 - [MCP Apps](mcp-apps.md) for widgets and Python MCP tools.
-- [AI Agents](agents/overview.md) for `run_code` integrations.
+- [AI agents](agents/overview.md) for `run_code` integrations.

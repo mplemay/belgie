@@ -4,6 +4,10 @@ Use `BelgieExtension` to attach a React widget to a Python MCP tool. Widgets are
 entries at `<srcDir>/<name>/widget.tsx`; Belgie serves them from Vite during development and reads
 self-contained built HTML in production.
 
+The workflow has four parts: Python registers the tool and widget path, Vite builds the browser
+entry, code generation creates typed callers from the MCP schema, and the widget reads or refreshes
+tool results through the connected host.
+
 ## Install
 
 ```bash
@@ -63,7 +67,8 @@ mcp = MCPServer(name="Get Time Server", extensions=[belgie])
 ```
 
 `BelgieExtension` defaults to development mode on `127.0.0.1:5173` and builds when production
-assets are requested. Set `dev=False` for a production server that reads built widget HTML.
+assets are requested. Set `dev=False` for a production server that reads built widget HTML. Set
+`build=False` when another process owns the Vite lifecycle.
 
 ## Create the widget
 
@@ -94,7 +99,8 @@ export default function GetTime() {
 ```
 
 The parent directory is the widget name, and the file name must be `widget.tsx`. A widget must have
-a default export.
+a default export. The Python registration must receive a `pathlib.Path`, not an HTML string or
+legacy manifest entry.
 
 ## Configure Vite
 
@@ -112,11 +118,12 @@ export default defineConfig({
 ```
 
 Development serves each widget at `/widgets/<name>/index.html` with Vite HMR. A production build
-emits `dist/widgets/<name>/index.html` with JavaScript, CSS, and assets inlined.
+emits `dist/widgets/<name>/index.html` with JavaScript, CSS, and supported assets inlined. Verify
+that this file exists before starting a production extension with `dev=False` and `build=False`.
 
 ## Generate typed tool callers
 
-Use the package CLI against a streamable HTTP MCP endpoint:
+Use the package CLI against a streamable HTTP MCP endpoint after the server is running:
 
 ```bash
 npx belgie-mcp generate http://127.0.0.1:3001/mcp --output src/widgets/tools.ts
@@ -125,6 +132,9 @@ npx belgie-mcp generate http://127.0.0.1:3001/mcp --output src/widgets/tools.ts
 OAuth is enabled by default. Use `--no-oauth` for an endpoint without OAuth, `--header` or
 `--header-env` for direct authentication, and `--check` to verify an existing generated file.
 See [@belgie/mcp](packages/mcp.md) for the generated caller API.
+
+Commit the generated TypeScript module with the widget project. Vite does not generate it during
+startup, so the widget can type-check and build without contacting the MCP server.
 
 ## Host context and actions
 

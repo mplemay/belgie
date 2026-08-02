@@ -12,7 +12,7 @@ complete path from a tool result to a host-connected widget.
 
 ## Run the example
 
-Install the example’s dependencies and start its server:
+Install the example's dependencies and start its server:
 
 ```bash
 cd examples/ui/mcp
@@ -32,30 +32,11 @@ uv run belgie install
 
 ## Python server
 
-The server registers a normal Python function with a widget path:
+The server registers a normal Python function with a widget path. The complete entrypoint is
+included from the shipped example:
 
 ```python
-from pathlib import Path
-
-from mcp.server import MCPServer
-
-from belgie.mcp import BelgieExtension
-
-project = Path(__file__).resolve().parents[2]
-belgie = BelgieExtension(project=project)
-
-
-@belgie.tool(
-    widget=project / "src/mcp_app/views/widgets/get-time/widget.tsx",
-    name="get-time",
-    title="Get Time",
-    description="Get the current server time in ISO 8601 format.",
-)
-def get_time() -> dict[str, str]:
-    ...
-
-
-mcp = MCPServer(name="Get Time Server", extensions=[belgie])
+--8<-- "examples/ui/mcp/src/mcp_app/__main__.py"
 ```
 
 The complete implementation is in
@@ -94,7 +75,7 @@ Run `npx belgie-mcp generate` against the running endpoint when the tool schema 
 
 ## Production build
 
-Set `dev=False` in `BelgieExtension` after building the widget assets, or use the project’s
+Set `dev=False` in `BelgieExtension` after building the widget assets, or use the project's
 production configuration. The extension then reads `dist/widgets/get-time/index.html` instead of
 starting a Vite development server.
 

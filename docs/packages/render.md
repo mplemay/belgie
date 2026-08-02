@@ -6,9 +6,16 @@ the ordinary `run_code` result.
 
 This API is independent from the path-based `widget.tsx` flow in [`@belgie/mcp`](mcp.md).
 
+Choose the API based on ownership of the widget:
+
+| If the widget... | Use | Delivery model |
+| --- | --- | --- |
+| Belongs to a Python MCP server project | [MCP Apps](../mcp-apps.md) | A `Path` to `widget.tsx`, with Vite development or built HTML in production. |
+| Is authored during an agent run | `render(...)` | One self-contained HTML document returned as the `run_code` result. |
+
 ## Render a widget
 
-Import `render` from the npm package and return its promise from the script’s exported function:
+Import `render` from the npm package and return its promise from the script's exported function:
 
 ```tsx
 import { render } from "npm:@belgie/render";
@@ -27,7 +34,8 @@ export default function run() {
 
 The result is a complete HTML document with inline JavaScript, CSS, and supported assets. A host
 that owns its own runtime should use `buildFromSource` from `@belgie/render/host` only from a
-privileged renderer worker, not from the restricted agent script.
+privileged renderer worker, not from the restricted agent script. A caller-owned Belgie `runtime`
+does not provide the renderer side channel used by the built-in agent integrations.
 
 ## Renderer boundary
 
@@ -56,7 +64,7 @@ privileged build, but the plugin expression is evaluated again there.
 | `widget` | Yes | A React element to mount in the browser. |
 | `plugins` | No | Vite plugins used during the server-side build. |
 
-Both keys must be visible to Belgie’s static source analysis. Use an inline options object, a
+Both keys must be visible to Belgie's static source analysis. Use an inline options object, a
 statically bound variable, or a static object spread. Computed keys, opaque spreads, and mutations
 after declaration are rejected.
 

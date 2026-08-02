@@ -21,7 +21,7 @@ uv run main
 ```
 
 MCP examples expose local HTTP servers. Start the server from the example directory and use the
-endpoint documented by that project’s README.
+endpoint documented by that project's README.
 
 ## Examples in the repository
 

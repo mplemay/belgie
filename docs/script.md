@@ -23,7 +23,8 @@ with Runtime() as runtime:
 ```
 
 The source is parsed as a module. Export a callable function, preferably a default `run` function,
-and return the value that Python should receive.
+and return the value that Python should receive. The runner passes positional and keyword arguments
+to that function.
 
 ## File-based source
 
@@ -41,11 +42,12 @@ with Runtime.from_folder(".") as runtime:
 ```
 
 The filename is retained by the script and helps relative imports resolve from the expected module
-location.
+location. Use a project-rooted [`Runtime.from_folder()`](runtime.md) when the file imports other
+local modules.
 
 ## Arguments and return values
 
-Script arguments and results use Belgie’s JSON bridge.
+Script arguments and results use Belgie's JSON bridge.
 
 | Python value | JavaScript value |
 | --- | --- |
@@ -57,7 +59,8 @@ Script arguments and results use Belgie’s JSON bridge.
 | `dict[str, ...]` | object |
 
 Dates, class instances, functions, streams, and other non-JSON values must be converted inside the
-script before they cross back to Python.
+script before they cross back to Python. For agent integrations, this same rule applies to the
+value returned by `run_code`.
 
 ## Imports
 
@@ -76,7 +79,7 @@ of repeating versioned specifiers throughout scripts.
 
 Script failures are raised as Belgie runtime errors. If the operation is asynchronous, cancellation
 propagates through the awaiting Python task. Keep long-running scripts bounded with application
-timeouts or the agent integration’s `timeout` option.
+timeouts or the agent integration's `timeout` option.
 
 ## See also
 

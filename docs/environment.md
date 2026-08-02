@@ -4,6 +4,10 @@ Use `Environment` when a group of scripts or commands shares JavaScript dependen
 or a lockfile. It resolves npm, JSR, URL, and local file dependencies through the embedded Deno
 environment.
 
+Choose an `Environment` when Python should own dependency declarations. For a one-off script, inline
+Deno imports in [`Script`](script.md) are simpler; for a package binary, combine the environment with
+[`Command`](command.md).
+
 ## Declare dependencies
 
 Pass a mapping of import aliases to specifiers:
@@ -27,7 +31,7 @@ and dependency count.
 
 ## Use a project workspace
 
-Set `path` to keep the environment’s workspace alongside a project:
+Set `path` to keep the environment's workspace alongside a project:
 
 ```python
 from pathlib import Path
@@ -41,7 +45,8 @@ with Environment(
     environment.install()
 ```
 
-Relative file dependencies and relative permissions resolve from this workspace.
+Relative file dependencies and relative permissions resolve from this workspace. Pass `lockfile=`
+when the application should use a lockfile at a specific path.
 
 ## Lock and update dependencies
 
@@ -57,7 +62,8 @@ Use the environment methods directly when your Python application owns dependenc
 lockfile without replacing the manifest declarations.
 
 The [CLI](cli.md) provides the same workflow for projects that keep dependencies in
-`pyproject.toml`.
+`pyproject.toml`. Use `lock` after changing declarations, `install` for a normal setup, and
+`install --frozen` in repeatable CI or deployment workflows.
 
 ## Environment options
 
@@ -77,6 +83,9 @@ installation cleanup.
 
 Additional options support reload patterns, node module linking, package-lock imports, certificate
 exceptions, and minimum dependency age. Use the typed constructor in Python for those cases.
+
+Remote resolution and npm caching are enabled by default. Disable them only when the application has
+another dependency source or needs a stricter resolution policy.
 
 ## Sync and async use
 

@@ -4,6 +4,9 @@ Use `Command` to run an installed JavaScript package binary, such as Vite, throu
 [`Runtime`](runtime.md). Commands use the same `Environment` dependency and permission boundary as
 scripts.
 
+Use a [`Script`](script.md) when Python needs a return value from JavaScript. Use `Command` when the
+package exposes a process-style tool whose output should be handled as command output.
+
 ## Run an installed binary
 
 Declare the binary in an environment, install it, then invoke it through the runtime:
@@ -24,7 +27,8 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-The command’s stdout and stderr follow the runtime command behavior. Use the CLI’s
+The command's stdout and stderr follow the runtime command behavior. Arguments are passed directly;
+Belgie does not invoke a shell to parse them. Use the CLI's
 [`belgie run`](cli.md#run-a-project-command) when the command belongs to a project manifest.
 
 ## Configure a command
@@ -38,8 +42,8 @@ The command’s stdout and stderr follow the runtime command behavior. Use the C
 | `env` | Environment variables passed to the command. |
 | `module` | Treat the target as a module entry instead of a binary. |
 
-Keep `cwd` inside the intended workspace and pass only the environment variables the command
-needs.
+Keep `cwd` inside the intended workspace and pass only the environment variables the command needs.
+Set `module=True` when the target should be run as a module instead of an installed binary.
 
 ## Use commands from a project
 

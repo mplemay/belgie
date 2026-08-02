@@ -1,7 +1,7 @@
 # Simple
 
-The smallest copyable belgie project. It loads a TypeScript file from disk, runs it in an async `Runtime`, and
-round-trips JSON between Python and JavaScript. Use this as the baseline when adding belgie to a new repository.
+The smallest copyable Belgie project. It loads a TypeScript file from disk, runs it in an async `Runtime`, and
+round-trips JSON between Python and JavaScript. Use this as the baseline when adding Belgie to a new repository.
 
 ## Run
 
@@ -11,7 +11,7 @@ uv run main
 
 ## What's happening
 
-`greet.ts` exports a default `run` function — the contract belgie expects for every script module:
+`greet.ts` exports a default `run` function -- the contract Belgie expects for every script module:
 
 ```typescript
 export default function run(input: { name: string }): { greeting: string } {

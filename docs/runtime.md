@@ -4,6 +4,9 @@ Use `Runtime` when Python needs to execute JavaScript, TypeScript, or TSX. A run
 embedded Deno execution context and returns a callable runner for each [`Script`](script.md) or
 [`Command`](command.md).
 
+Keep the runtime entered until every runner created from it has finished. The context manager
+selects synchronous or asynchronous runners for the surrounding Python code.
+
 ## Run a script
 
 Create the runtime with a context manager and call the resulting runner:
@@ -32,6 +35,22 @@ asyncio.run(main())
 The script runner accepts the arguments declared by the exported function. Values crossing the
 Python/Deno boundary must be JSON-compatible: `None`, booleans, numbers, strings, lists, tuples,
 and dictionaries with string keys.
+
+## Choose a runtime setup
+
+| Use | Runtime form | What it provides |
+| --- | --- | --- |
+| A short script with inline imports | `Runtime()` | The current Python working directory and the default runtime options; it does not create a temporary workspace. |
+| Shared dependencies or a lockfile | `Runtime(env=environment)` | The workspace and dependency resolution owned by an [`Environment`](environment.md). |
+| File-based modules in a project | `Runtime.from_folder(path)` | A project folder used to resolve local imports and runtime configuration. |
+
+Use an `Environment` when dependency setup is part of your application. Use `from_folder()` when
+the project directory itself is the boundary for local files.
+
+`Runtime()` uses the Python process's current working directory for relative imports and filesystem
+access. Files written there can persist after the runtime exits. Use an [`Environment`](environment.md)
+with an explicit path when the workspace should be a named project directory, or use a temporary
+directory managed by your application when the workspace should be disposable.
 
 ## Synchronous and asynchronous runtimes
 
@@ -112,6 +131,9 @@ with Runtime(options=options) as runtime:
 
 Use the narrowest permissions that satisfy the script. `RuntimePermissions.all()` and
 `RuntimePermissions.none()` are available when a deliberately broad or empty policy is required.
+
+Permissions apply to the embedded runtime, not to the Python process as a whole. Keep the runtime
+workspace and allowed paths scoped to the files the script needs.
 
 !!! warning "Permissions are the execution boundary"
     A runtime with broad permissions can access the resources listed by that policy. Treat

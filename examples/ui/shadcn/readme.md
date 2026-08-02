@@ -1,6 +1,8 @@
-# Shadcn
+# shadcn/ui MCP Apps
 
 Runs an MCP server whose conventional React widget uses Tailwind CSS and shadcn/ui.
+
+It extends the [MCP Apps workflow](../../../docs/mcp-apps.md) with Tailwind CSS and shadcn/ui components.
 
 Requires `belgie[mcp,cli]` (included in this example's dependencies).
 

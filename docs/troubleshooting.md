@@ -1,7 +1,8 @@
 # Troubleshooting
 
 Use the error or symptom as the starting point. Most setup failures come from a missing optional
-extra, a project discovered from the wrong directory, or an incomplete JavaScript lockfile.
+extra, a project discovered from the wrong directory, an incomplete JavaScript lockfile, or a
+development/production widget mismatch.
 
 ## `belgie CLI dependencies are required`
 
@@ -40,6 +41,8 @@ root explicitly:
 uv run belgie lock --project path/to/project
 ```
 
+The `--project` path should identify the directory containing the project's `pyproject.toml`.
+
 ## `No [tool.belgie.dependencies] entries found`
 
 Add at least one dependency to the project manifest, then lock it:
@@ -62,7 +65,7 @@ uv run belgie lock
 uv run belgie install --frozen
 ```
 
-## Widget path or export errors
+## `BelgieExtension.tool()` rejects the widget path
 
 `BelgieExtension.tool()` expects a `pathlib.Path` whose filename is `widget.tsx`. The parent
 directory becomes the widget name, and the module must have a default export.
@@ -84,8 +87,12 @@ Check the following:
 - `vite` is present in `[tool.belgie.dependencies]`.
 - The project has a Vite configuration file when building isolated widgets.
 - `uv run belgie lock` and `uv run belgie install` completed successfully.
-- The `belgie()` plugin’s `srcDir` points to the directory containing widget folders.
+- The `belgie()` plugin's `srcDir` points to the directory containing widget folders.
 - Production output is under `dist/widgets/<name>/index.html`.
+
+If Vite is managed outside the Python process, set `build=False` and start the Vite command
+separately. If the server should read existing production HTML, use both `dev=False` and
+`build=False`.
 
 ## Script result is not JSON-serializable
 
@@ -109,6 +116,9 @@ capability = BelgieCapability(timeout=30)
 ```
 
 If the script needs network access, ensure the runtime configuration permits the requested host.
+
+The default agent runtime denies network access, so a timeout caused by an unreachable request may
+also indicate that the host was not added to `RuntimePermissions.allow_net`.
 
 ## `@belgie/render` rejects the source
 
