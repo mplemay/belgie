@@ -1,7 +1,7 @@
 # Pydantic AI
 
 Wires `BelgieCapability()` as a Pydantic AI capability so the agent gets a `run_code` tool for sandboxed JavaScript,
-TypeScript, or TSX. The model writes a `belgie.Script` module and belgie executes it in the embedded Deno runtime.
+TypeScript, or TSX. The model writes a `belgie.Script` module and Belgie executes it in the embedded Deno runtime.
 
 Requires `belgie[pydantic-ai]` (included in this example's dependencies).
 
@@ -21,7 +21,13 @@ uv run main
 
 ```python
 from pydantic_ai import Agent
+
+from belgie import RuntimeOptions, RuntimePermissions
 from belgie.pydantic_ai import BelgieCapability
+
+runtime_options = RuntimeOptions(
+    permissions=RuntimePermissions(allow_net=["hacker-news.firebaseio.com"]),
+)
 
 agent = Agent(
     "openai:gpt-5",
@@ -29,7 +35,7 @@ agent = Agent(
         "You can execute JavaScript or TypeScript in a Deno sandbox with the run_code tool. "
         "Use it when fetching data or transforming values is easier in JS/TS than in Python."
     ),
-    capabilities=[BelgieCapability()],
+    capabilities=[BelgieCapability(runtime_options=runtime_options)],
 )
 
 result = agent.run_sync(
@@ -39,9 +45,9 @@ result = agent.run_sync(
 print(result.output)
 ```
 
-See also the [Pydantic AI section](../../../readme.md#pydantic-ai) in the root readme for `defer_loading`, tool
-approval, and production hardening.
+See the [Pydantic AI guide](../../../docs/agents/pydantic-ai.md) for `defer_loading`, retries, permissions, and
+runtime configuration.
 
 The same tool can return a self-contained React widget by exporting a TSX `run` function that returns
-`render({ widget: <Widget />, plugins: [] })` from `npm:@belgie/render`; see
-[inline widget rendering](../../../readme.md#inline-widget-rendering).
+`render({ widget: <Widget />, plugins: [] })` from `npm:@belgie/render`; see the
+[inline widget rendering guide](../../../docs/packages/render.md).

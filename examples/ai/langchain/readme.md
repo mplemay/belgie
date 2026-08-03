@@ -1,7 +1,7 @@
 # LangChain
 
 Wires `BelgieMiddleware()` with LangChain's `create_agent` so the agent gets a `run_code` tool for sandboxed
-JavaScript, TypeScript, or TSX. The model writes a `belgie.Script` module and belgie executes it in the embedded Deno
+JavaScript, TypeScript, or TSX. The model writes a `belgie.Script` module and Belgie executes it in the embedded Deno
 runtime.
 
 Requires `belgie[langchain]` (included in this example's dependencies).
@@ -23,12 +23,17 @@ uv run main
 ```python
 from langchain.agents import create_agent
 
+from belgie import RuntimeOptions, RuntimePermissions
 from belgie.langchain import BelgieMiddleware
+
+runtime_options = RuntimeOptions(
+    permissions=RuntimePermissions(allow_net=["hacker-news.firebaseio.com"]),
+)
 
 agent = create_agent(
     model="openai:gpt-5",
     tools=[],
-    middleware=[BelgieMiddleware()],
+    middleware=[BelgieMiddleware(runtime_options=runtime_options)],
     system_prompt=(
         "You can execute JavaScript or TypeScript in a Deno sandbox with the run_code tool. "
         "Use it when fetching data or transforming values is easier in JS/TS than in Python."
@@ -49,8 +54,9 @@ result = agent.invoke(
 print(result["messages"][-1].content)
 ```
 
-See also the [LangChain section](../../../readme.md#langchain) in the root readme.
+See the [LangChain guide](../../../docs/agents/langchain.md) for deferred loading, retries, permissions, and
+runtime configuration.
 
 The same tool can return a self-contained React widget by exporting a TSX `run` function that returns
-`render({ widget: <Widget />, plugins: [] })` from `npm:@belgie/render`; see
-[inline widget rendering](../../../readme.md#inline-widget-rendering).
+`render({ widget: <Widget />, plugins: [] })` from `npm:@belgie/render`; see the
+[inline widget rendering guide](../../../docs/packages/render.md).

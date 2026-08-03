@@ -1,7 +1,7 @@
 # Commands
 
 Installs an npm package into an `Environment`, then invokes its CLI binary through `Command`. Arguments are passed
-directly — no shell parsing and no external Deno on PATH.
+directly -- no shell parsing and no external Deno on PATH.
 
 ## Run
 
