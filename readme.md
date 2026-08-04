@@ -1,5 +1,17 @@
 # Belgie: The generative AI/UI sandbox for python
 
+<div align="center">
+  <a href="https://github.com/mplemay/belgie/actions/workflows/test.yml?query=branch%3Amain"><img src="https://github.com/mplemay/belgie/actions/workflows/test.yml/badge.svg?event=push" alt="CI"></a>
+  <a href="https://pypi.python.org/pypi/belgie"><img src="https://img.shields.io/pypi/v/belgie.svg" alt="PyPI"></a>
+  <a href="https://github.com/mplemay/belgie"><img src="https://img.shields.io/pypi/pyversions/belgie.svg" alt="versions"></a>
+</div>
+
+---
+
+**Documentation**: [mplemay.github.io/belgie](https://mplemay.github.io/belgie/)
+
+---
+
 Belgie is a sandboxed TypeScript environment for Python that lets you build React MCP Apps and
 have agents write code in a sandbox.
 
