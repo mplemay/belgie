@@ -29,10 +29,17 @@ Optional project settings live under `[tool.belgie]`:
 [tool.belgie]
 source = "src/widgets"
 module = false
+minimum-dependency-age = "P7D"
 ```
 
 `source` is a relative path used by project integrations. `module` controls whether commands run
 as modules by default. Paths containing `..` and absolute paths are rejected.
+
+`minimum-dependency-age` matches Deno's policy for npm and JSR packages. Accept minutes (`120`), an
+ISO-8601 duration (`P7D`), a `YYYY-MM-DD` date, an RFC3339 timestamp, or `0` / `false` to disable.
+When unset, Deno's default 24-hour window applies (including `.npmrc` `min-release-age` when present).
+The project value applies to `add`, `lock`, `install`, `update`, and `run`. Override it for one
+command with `--minimum-dependency-age` / `--min-dep-age`.
 
 ## Command reference
 
@@ -88,6 +95,13 @@ Pass `--latest` to request the latest versions:
 
 ```bash
 uv run belgie update --latest
+```
+
+Override the project age policy for one update:
+
+```bash
+uv run belgie update --minimum-dependency-age 0
+uv run belgie lock --min-dep-age P1D
 ```
 
 The CLI updates the manifest specifiers when a resolved dependency changes. Use `belgie list` to

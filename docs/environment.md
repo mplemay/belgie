@@ -80,9 +80,25 @@ installation cleanup.
 | `production` | `False` | Install production dependencies only. |
 | `skip_types` | `False` | Skip type information when resolving packages. |
 | `node_modules_dir` | `None` | Select automatic, manual, or disabled node modules behavior. |
+| `minimum_dependency_age` | `None` | Skip package versions newer than this age or cutoff date. |
 
-Additional options support reload patterns, node module linking, package-lock imports, certificate
-exceptions, and minimum dependency age. Use the typed constructor in Python for those cases.
+`minimum_dependency_age` accepts the same values as Deno: minutes (`"120"`), ISO-8601 durations
+(`"P7D"`), `YYYY-MM-DD` dates, RFC3339 timestamps, or `"0"` to disable. Leave it unset (`None`) to
+use Deno's default 24-hour window. `minimum_dependency_age_minutes` remains available for
+compatibility and cannot be combined with `minimum_dependency_age`.
+
+```python
+from belgie import Environment, EnvironmentOptions
+
+with Environment(
+    {"std_path": "jsr:@std/path@^1"},
+    options=EnvironmentOptions(minimum_dependency_age="P7D"),
+) as environment:
+    environment.install()
+```
+
+Additional options support reload patterns, node module linking, package-lock imports, and
+certificate exceptions. Use the typed constructor in Python for those cases.
 
 Remote resolution and npm caching are enabled by default. Disable them only when the application has
 another dependency source or needs a stricter resolution policy.

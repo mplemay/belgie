@@ -5,6 +5,7 @@ import importlib
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
@@ -128,6 +129,62 @@ def test_run_command_forwards_module_override(
 
     assert result.exit_code == 0
     assert received == [expected]
+
+
+@pytest.mark.parametrize("flag", ["--minimum-dependency-age", "--min-dep-age"])
+@pytest.mark.parametrize(
+    "case",
+    [
+        pytest.param(("update", ["camelcase"], "update_project"), id="update"),
+        pytest.param(("lock", [], "lock_project"), id="lock"),
+        pytest.param(("install", [], "install_project"), id="install"),
+        pytest.param(
+            ("add", ["std_path", "jsr:@std/path@^1"], "add_dependency"),
+            id="add",
+        ),
+        pytest.param(("run", ["echo"], "run_command"), id="run"),
+    ],
+)
+def test_resolution_commands_forward_minimum_dependency_age(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    flag: str,
+    case: tuple[str, list[str], str],
+) -> None:
+    command, extra_args, operation_attr = case
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[project]
+name = "demo"
+
+[tool.belgie.dependencies]
+camelcase = "npm:camelcase@8"
+""",
+        encoding="utf-8",
+    )
+    received: list[str | None] = []
+
+    def fake_operation(
+        *args: object,
+        minimum_dependency_age: str | None = None,
+        **kwargs: object,
+    ) -> SimpleNamespace | None:
+        received.append(minimum_dependency_age)
+        if operation_attr == "update_project":
+            return SimpleNamespace(changes=[])
+        if operation_attr == "run_command":
+            return None
+        return SimpleNamespace(dependencies=1, lockfile=str(tmp_path / "deno.lock"))
+
+    monkeypatch.setattr(f"belgie.cli.__main__.{operation_attr}", fake_operation)
+
+    result = runner.invoke(
+        app,
+        [command, "-C", str(tmp_path), *extra_args, flag, "0"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert received == ["0"]
 
 
 def test_main_handles_project_error(

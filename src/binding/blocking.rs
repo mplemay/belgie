@@ -2,6 +2,7 @@ use deno_core::error::AnyError;
 use pyo3::PyResult;
 
 use crate::exceptions::BelgieRuntimeError;
+use crate::utils::minimum_dependency_age::with_minimum_dependency_age_hint;
 
 pub(crate) async fn run_on_blocking_thread<T, F>(
     operation: F,
@@ -18,5 +19,5 @@ where
 }
 
 pub(crate) fn any_error_to_py(error: AnyError) -> pyo3::PyErr {
-    BelgieRuntimeError::new_err(error.to_string())
+    BelgieRuntimeError::new_err(with_minimum_dependency_age_hint(error.to_string()))
 }

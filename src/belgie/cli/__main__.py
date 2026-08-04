@@ -42,6 +42,15 @@ ProjectDir = Annotated[
     ),
 ]
 
+MinimumDependencyAge = Annotated[
+    str | None,
+    typer.Option(
+        "--minimum-dependency-age",
+        "--min-dep-age",
+        help="Only use dependencies at least this old (minutes, RFC3339 date, YYYY-MM-DD, or ISO-8601 duration)",
+    ),
+]
+
 app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
@@ -77,16 +86,25 @@ def add(
     alias: Annotated[str, typer.Argument(help="JavaScript import alias")],
     specifier: Annotated[str, typer.Argument(help="npm version requirement or full npm:/jsr: specifier")],
     project: ProjectDir = None,
+    minimum_dependency_age: MinimumDependencyAge = None,
 ) -> None:
     discovered = discover_project(project=project)
-    result = add_dependency(discovered, alias=alias, specifier=specifier)
+    result = add_dependency(
+        discovered,
+        alias=alias,
+        specifier=specifier,
+        minimum_dependency_age=minimum_dependency_age,
+    )
     typer.echo(f"Added {alias}. Locked {result.dependencies} dependencies. Lockfile: {discovered.lockfile_path}")
 
 
 @app.command()
-def lock(project: ProjectDir = None) -> None:
+def lock(
+    project: ProjectDir = None,
+    minimum_dependency_age: MinimumDependencyAge = None,
+) -> None:
     discovered = discover_project(project=project)
-    result = lock_project(discovered)
+    result = lock_project(discovered, minimum_dependency_age=minimum_dependency_age)
     typer.echo(f"Locked {result.dependencies} dependencies. Lockfile: {discovered.lockfile_path}")
 
 
@@ -94,9 +112,14 @@ def lock(project: ProjectDir = None) -> None:
 def install(
     project: ProjectDir = None,
     frozen: Annotated[bool, typer.Option("--frozen", help="Require and install from the existing deno.lock")] = False,  # noqa: FBT002
+    minimum_dependency_age: MinimumDependencyAge = None,
 ) -> None:
     discovered = discover_project(project=project)
-    result = install_project(discovered, frozen=frozen)
+    result = install_project(
+        discovered,
+        frozen=frozen,
+        minimum_dependency_age=minimum_dependency_age,
+    )
     typer.echo(f"Installed {result.dependencies} dependencies. Lockfile: {result.lockfile}")
 
 
@@ -105,9 +128,15 @@ def update(
     packages: Annotated[list[str] | None, typer.Argument(help="Optional dependency aliases to update")] = None,
     project: ProjectDir = None,
     latest: Annotated[bool, typer.Option("--latest", help="Update to the latest versions")] = False,  # noqa: FBT002
+    minimum_dependency_age: MinimumDependencyAge = None,
 ) -> None:
     discovered = discover_project(project=project)
-    result = update_project(discovered, packages or None, latest=latest)
+    result = update_project(
+        discovered,
+        packages or None,
+        latest=latest,
+        minimum_dependency_age=minimum_dependency_age,
+    )
     for change in result.changes:
         typer.echo(f"{change.name}: {change.previous} -> {change.updated}")
     typer.echo(f"Lockfile: {discovered.lockfile_path}")
@@ -126,7 +155,7 @@ def list_dependencies(project: ProjectDir = None) -> None:
 @app.command(
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
 )
-def run(
+def run(  # noqa: PLR0913, PLR0917
     ctx: typer.Context,
     project: ProjectDir = None,
     cwd: Annotated[
@@ -141,9 +170,17 @@ def run(
         ),
     ] = None,
     frozen: Annotated[bool, typer.Option("--frozen/--no-frozen", help="Require and use the existing deno.lock")] = True,  # noqa: FBT002
+    minimum_dependency_age: MinimumDependencyAge = None,
 ) -> None:
     discovered = discover_project(project=project)
-    run_command(discovered, ctx.args, cwd=cwd, frozen=frozen, module=module)
+    run_command(
+        discovered,
+        ctx.args,
+        cwd=cwd,
+        frozen=frozen,
+        module=module,
+        minimum_dependency_age=minimum_dependency_age,
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> None:

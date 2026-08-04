@@ -198,7 +198,7 @@ fn resolve_npm_latest_version(
         Ok(latest_tag.clone())
     } else {
         bail!(
-            "npm package '{}' latest version '{}' is excluded by dependency age policy",
+            "npm package '{}' latest version '{}' was not used because it was newer than the specified minimum dependency date",
             req.name,
             latest_tag
         )
