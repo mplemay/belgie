@@ -175,6 +175,7 @@ class EnvironmentOptions:
         skip_types: bool = False,
         unsafely_ignore_certificate_errors: bool | Iterable[str] | None = None,
         import_package_lockfile: bool = False,
+        minimum_dependency_age: str | None = None,
         minimum_dependency_age_minutes: int | None = None,
     ) -> None: ...
 

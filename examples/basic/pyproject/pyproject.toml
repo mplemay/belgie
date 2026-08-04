@@ -18,6 +18,9 @@ main = "pyproject.__main__:main"
 requires = ["uv_build>=0.11,<0.12"]
 build-backend = "uv_build"
 
+[tool.belgie]
+minimum-dependency-age = "P7D"
+
 [tool.belgie.dependencies]
 std_path = "jsr:@std/path@^1.1.6"
 
