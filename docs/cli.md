@@ -38,8 +38,8 @@ as modules by default. Paths containing `..` and absolute paths are rejected.
 `minimum-dependency-age` matches Deno's policy for npm and JSR packages. Accept minutes (`120`), an
 ISO-8601 duration (`P7D`), a `YYYY-MM-DD` date, an RFC3339 timestamp, or `0` / `false` to disable.
 When unset, Deno's default 24-hour window applies (including `.npmrc` `min-release-age` when present).
-The project value applies to `add`, `lock`, `install`, and `update`. Override it for one command with
-`--minimum-dependency-age` / `--min-dep-age`.
+The project value applies to `add`, `lock`, `install`, `update`, and `run`. Override it for one
+command with `--minimum-dependency-age` / `--min-dep-age`.
 
 ## Command reference
 

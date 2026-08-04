@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -55,11 +55,15 @@ def test_parse_belgie_tool_config_rejects_invalid_module_mode() -> None:
     [
         pytest.param(date(2025, 1, 1), "2025-01-01", id="date"),
         pytest.param(
-            datetime(2025, 1, 1, tzinfo=timezone.utc),
+            datetime(2025, 1, 1, tzinfo=UTC),
             "2025-01-01T00:00:00Z",
             id="aware-datetime-utc",
         ),
-        pytest.param(datetime(2025, 1, 1), "2025-01-01T00:00:00Z", id="naive-datetime"),
+        pytest.param(
+            datetime(2025, 1, 1),  # noqa: DTZ001 - intentional naive TOML datetime input
+            "2025-01-01T00:00:00Z",
+            id="naive-datetime",
+        ),
         pytest.param(
             datetime(2025, 1, 1, tzinfo=timezone(timedelta(hours=-5))),
             "2025-01-01T00:00:00-05:00",

@@ -147,7 +147,7 @@ def test_create_environment_uses_project_minimum_dependency_age(tmp_path: Path) 
     fake_environment = FakeEnvironment.last
     assert fake_environment is not None
     assert fake_environment.options is not None
-    assert "minimum_dependency_age=Some(Enabled" in repr(fake_environment.options)
+    assert 'minimum_dependency_age=Some("P7D")' in repr(fake_environment.options)
 
 
 @pytest.mark.parametrize(
@@ -190,7 +190,7 @@ def test_resolution_operations_flag_overrides_project_minimum_dependency_age(
 
     assert FakeEnvironment.last is not None
     assert FakeEnvironment.last.options is not None
-    assert "minimum_dependency_age=Some(Disabled)" in repr(FakeEnvironment.last.options)
+    assert 'minimum_dependency_age=Some("0")' in repr(FakeEnvironment.last.options)
 
 
 def test_create_environment_reports_invalid_minimum_dependency_age(tmp_path: Path) -> None:
@@ -261,6 +261,56 @@ def test_run_command_applies_module_precedence(
     run_command(load_project(tmp_path), ["vite", "build"], frozen=False, module=override)
 
     assert received == [expected]
+
+
+def test_run_command_flag_overrides_project_minimum_dependency_age(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    write_pyproject(
+        tmp_path,
+        {"vite": "npm:vite@8"},
+        minimum_dependency_age="P7D",
+    )
+
+    class FakeCommand:
+        def __init__(self, name: str, *, cwd: str, module: bool) -> None:
+            self.name = name
+            self.cwd = cwd
+            self.module = module
+
+    class FakeRuntime:
+        def __init__(self, *, env: FakeEnvironment) -> None:
+            self.env = env
+
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            traceback: TracebackType | None,
+        ) -> bool | None:
+            return None
+
+        def __call__(self, command: FakeCommand) -> Callable[..., None]:
+            assert command.name == "vite"
+            return lambda *_args: None
+
+    monkeypatch.setattr(_operations, "Command", FakeCommand)
+    monkeypatch.setattr(_operations, "Runtime", FakeRuntime)
+
+    run_command(
+        load_project(tmp_path),
+        ["vite", "build"],
+        frozen=False,
+        minimum_dependency_age="0",
+    )
+
+    assert FakeEnvironment.last is not None
+    assert FakeEnvironment.last.options is not None
+    assert 'minimum_dependency_age=Some("0")' in repr(FakeEnvironment.last.options)
 
 
 def test_add_dependency_leaves_lockfile_unchanged_when_pyproject_write_fails(

@@ -44,7 +44,7 @@ EnvironmentOptions(minimum_dependency_age="P7D")
 
 `minimum_dependency_age_minutes` remains available for compatibility with existing code. In projects, set
 `[tool.belgie].minimum-dependency-age` or pass `--minimum-dependency-age` / `--min-dep-age` on `add`, `lock`,
-`install`, and `update`.
+`install`, `update`, and `run`.
 
 For CSS module imports in scripts, pass `RuntimeOptions(enable_raw_imports=True)` when binding `Runtime`.
 

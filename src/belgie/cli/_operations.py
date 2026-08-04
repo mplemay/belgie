@@ -83,20 +83,25 @@ def install_project(
         return environment.install()
 
 
-def run_command(
+def run_command(  # noqa: PLR0913
     project: BelgieProject,
     command: Sequence[str],
     *,
     cwd: Path | None = None,
     frozen: bool,
     module: bool | None = None,
+    minimum_dependency_age: str | None = None,
 ) -> None:
     if not command:
         msg = "Missing command"
         raise ProjectError(msg)
 
     name, *args = command
-    with create_environment(project, frozen=frozen) as environment:
+    with create_environment(
+        project,
+        frozen=frozen,
+        minimum_dependency_age=minimum_dependency_age,
+    ) as environment:
         environment.install()
         with Runtime(env=environment) as runtime:
             runtime(
