@@ -133,15 +133,13 @@ def test_run_command_forwards_module_override(
 
 @pytest.mark.parametrize("flag", ["--minimum-dependency-age", "--min-dep-age"])
 @pytest.mark.parametrize(
-    ("command", "extra_args", "operation_attr"),
+    "case",
     [
-        pytest.param("update", ["camelcase"], "update_project", id="update"),
-        pytest.param("lock", [], "lock_project", id="lock"),
-        pytest.param("install", [], "install_project", id="install"),
+        pytest.param(("update", ["camelcase"], "update_project"), id="update"),
+        pytest.param(("lock", [], "lock_project"), id="lock"),
+        pytest.param(("install", [], "install_project"), id="install"),
         pytest.param(
-            "add",
-            ["std_path", "jsr:@std/path@^1"],
-            "add_dependency",
+            ("add", ["std_path", "jsr:@std/path@^1"], "add_dependency"),
             id="add",
         ),
     ],
@@ -150,10 +148,9 @@ def test_resolution_commands_forward_minimum_dependency_age(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     flag: str,
-    command: str,
-    extra_args: list[str],
-    operation_attr: str,
+    case: tuple[str, list[str], str],
 ) -> None:
+    command, extra_args, operation_attr = case
     (tmp_path / "pyproject.toml").write_text(
         """
 [project]

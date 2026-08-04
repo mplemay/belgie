@@ -35,20 +35,18 @@ mod tests {
     #[test]
     fn leaves_unrelated_errors_unchanged() {
         let message = "package not found".to_string();
-        assert_eq!(
-            with_minimum_dependency_age_hint(message.clone()),
-            message
-        );
+        assert_eq!(with_minimum_dependency_age_hint(message.clone()), message);
     }
 
     #[test]
     fn does_not_duplicate_hint() {
-        let message = with_minimum_dependency_age_hint(format!(
-            "failed: {MINIMUM_DEPENDENCY_AGE_MARKER}"
-        ));
+        let message =
+            with_minimum_dependency_age_hint(format!("failed: {MINIMUM_DEPENDENCY_AGE_MARKER}"));
         let again = with_minimum_dependency_age_hint(message.clone());
         assert_eq!(
-            again.matches("blocked by the minimum dependency age policy").count(),
+            again
+                .matches("blocked by the minimum dependency age policy")
+                .count(),
             1
         );
     }
