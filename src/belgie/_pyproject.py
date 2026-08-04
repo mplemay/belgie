@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tomllib
 from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Final
 
@@ -12,11 +13,15 @@ DEFAULT_SOURCE: Final[Path] = Path()
 DEFAULT_MODULE: Final[bool] = False
 SOURCE_TABLE_PATH: Final[str] = "[tool.belgie].source"
 MODULE_TABLE_PATH: Final[str] = "[tool.belgie].module"
+MINIMUM_DEPENDENCY_AGE_TABLE_PATH: Final[str] = "[tool.belgie].minimum-dependency-age"
 ABSOLUTE_SOURCE_PATH_ERROR: Final[str] = f"{SOURCE_TABLE_PATH} must be a relative path"
 PARENT_SOURCE_PATH_ERROR: Final[str] = f"{SOURCE_TABLE_PATH} cannot contain '..'"
 EMPTY_SOURCE_PATH_ERROR: Final[str] = f"{SOURCE_TABLE_PATH} must be a non-empty string"
 INVALID_SOURCE_PATH_ERROR: Final[str] = f"{SOURCE_TABLE_PATH} must be a string"
 INVALID_MODULE_ERROR: Final[str] = f"{MODULE_TABLE_PATH} must be a boolean"
+INVALID_MINIMUM_DEPENDENCY_AGE_ERROR: Final[str] = (
+    f"{MINIMUM_DEPENDENCY_AGE_TABLE_PATH} must be a nonnegative integer, a non-empty string, or false"
+)
 
 
 class PyprojectError(Exception):
@@ -27,6 +32,7 @@ class PyprojectError(Exception):
 class BelgieToolConfig:
     source: Path = DEFAULT_SOURCE
     module: bool = DEFAULT_MODULE
+    minimum_dependency_age: str | None = None
 
 
 def is_absolute_config_path(source: str) -> bool:
@@ -79,7 +85,41 @@ def parse_belgie_tool_config(document: dict[str, Any]) -> BelgieToolConfig:
     module = belgie.get("module", DEFAULT_MODULE)
     if not isinstance(module, bool):
         raise PyprojectError(INVALID_MODULE_ERROR)
-    return BelgieToolConfig(source=source_path, module=module)
+
+    return BelgieToolConfig(
+        source=source_path,
+        module=module,
+        minimum_dependency_age=_parse_minimum_dependency_age(belgie.get("minimum-dependency-age")),
+    )
+
+
+def _format_minimum_dependency_age_datetime(value: datetime) -> str:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    text = value.isoformat()
+    if text.endswith("+00:00"):
+        return f"{text[:-6]}Z"
+    return text
+
+
+def _parse_minimum_dependency_age(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        if value:
+            raise PyprojectError(INVALID_MINIMUM_DEPENDENCY_AGE_ERROR)
+        return "0"
+    if isinstance(value, int):
+        if value < 0:
+            raise PyprojectError(INVALID_MINIMUM_DEPENDENCY_AGE_ERROR)
+        return str(value)
+    if isinstance(value, str) and value.strip():
+        return value
+    if isinstance(value, datetime):
+        return _format_minimum_dependency_age_datetime(value)
+    if isinstance(value, date):
+        return value.isoformat()
+    raise PyprojectError(INVALID_MINIMUM_DEPENDENCY_AGE_ERROR)
 
 
 def load_belgie_tool_config(project_root: Path) -> BelgieToolConfig:

@@ -39,6 +39,7 @@ class BelgieProject:
     root: Path
     dependencies: dict[str, str]
     module: bool
+    minimum_dependency_age: str | None
     pyproject: dict[str, Any]
     source: Path
 
@@ -219,6 +220,7 @@ def _load_project_from_document(root: Path, document: dict[str, Any]) -> BelgieP
         root=root.resolve(),
         dependencies=_parse_dependencies(document),
         module=config.module,
+        minimum_dependency_age=config.minimum_dependency_age,
         pyproject=document,
         source=config.source,
     )
