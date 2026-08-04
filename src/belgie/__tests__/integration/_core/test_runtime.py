@@ -17,7 +17,7 @@ from belgie.__tests__.integration._core.conftest import (
     installed_environment,
     rollup_native_package,
 )
-from belgie.errors import BelgieJavaScriptError
+from belgie.errors import BelgieJavaScriptError, BelgieModuleError, BelgieRuntimeError
 
 
 def run_fresh_python(source: str) -> CompletedProcess[str]:
@@ -163,6 +163,176 @@ def test_runtime_permissions_can_deny_and_allow_read_access(tmp_path: Path):
         ) as runtime,
     ):
         assert runtime(Script(source))() == "secret"
+
+
+def test_static_absolute_json_import_requires_read_permission(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    secret = tmp_path / "static-secret.json"
+    secret.write_text('{"value":"static-secret-content"}', encoding="utf-8")
+    source = f'import data from {json.dumps(secret.as_uri())} with {{ type: "json" }}; export default () => data.value;'
+
+    with (
+        pytest.raises(BelgieModuleError) as exc_info,
+        Environment(path=project) as env,
+        Runtime(
+            env=env,
+            options=RuntimeOptions(
+                permissions=RuntimePermissions(allow_read=[str(project)]),
+            ),
+        ) as runtime,
+    ):
+        runtime(Script(source))()
+
+    assert "static-secret-content" not in str(exc_info.value)
+
+
+def test_static_forbidden_source_is_rejected_before_graph_parsing(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    secret = tmp_path / "static-secret.js"
+    secret.write_text(
+        'export default "static-graph-secret-content" + ;',
+        encoding="utf-8",
+    )
+    source = f"import secret from {json.dumps(secret.as_uri())}; export default () => secret;"
+
+    with (
+        pytest.raises(BelgieModuleError, match="read|NotCapable") as exc_info,
+        Environment(path=project) as env,
+        Runtime(
+            env=env,
+            options=RuntimeOptions(
+                permissions=RuntimePermissions(allow_read=[str(project)]),
+            ),
+        ) as runtime,
+    ):
+        runtime(Script(source))()
+
+    assert "static-graph-secret-content" not in str(exc_info.value)
+
+
+def test_dynamic_absolute_file_import_requires_read_permission(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    secret = tmp_path / "dynamic-secret.js"
+    secret.write_text('export default "dynamic-secret-content";', encoding="utf-8")
+    source = f"export default async () => (await import({json.dumps(secret.as_uri())})).default;"
+
+    with (
+        pytest.raises(BelgieJavaScriptError) as exc_info,
+        Environment(path=project) as env,
+        Runtime(
+            env=env,
+            options=RuntimeOptions(
+                permissions=RuntimePermissions(allow_read=[str(project)]),
+            ),
+        ) as runtime,
+    ):
+        runtime(Script(source))()
+
+    assert "dynamic-secret-content" not in str(exc_info.value)
+
+
+def test_absolute_json_require_requires_read_permission(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    secret = tmp_path / "require-secret.json"
+    secret.write_text('{"value":"require-secret-content"}', encoding="utf-8")
+    source = f"""
+import {{ createRequire }} from "node:module";
+const require = createRequire(import.meta.url);
+const data = require({json.dumps(str(secret))});
+export default () => data.value;
+"""
+
+    with (
+        pytest.raises(BelgieJavaScriptError) as exc_info,
+        Environment(path=project) as env,
+        Runtime(
+            env=env,
+            options=RuntimeOptions(
+                permissions=RuntimePermissions(allow_read=[str(project)]),
+            ),
+        ) as runtime,
+    ):
+        runtime(Script(source))()
+
+    assert "require-secret-content" not in str(exc_info.value)
+
+
+def test_percent_encoded_absolute_file_url_requires_read_permission(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    secret = tmp_path / "percent encoded secret.js"
+    secret.write_text('export default "percent-secret-content";', encoding="utf-8")
+    source = f"export default async () => (await import({json.dumps(secret.as_uri())})).default;"
+
+    with (
+        pytest.raises(BelgieJavaScriptError) as exc_info,
+        Environment(path=project) as env,
+        Runtime(
+            env=env,
+            options=RuntimeOptions(
+                permissions=RuntimePermissions(allow_read=[str(project)]),
+            ),
+        ) as runtime,
+    ):
+        runtime(Script(source))()
+
+    assert "percent-secret-content" not in str(exc_info.value)
+
+
+def test_relative_json_import_inside_allowed_workspace_succeeds(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "data.json").write_text('{"answer":42}', encoding="utf-8")
+    source = 'import data from "./data.json" with { type: "json" }; export default () => data.answer;'
+
+    with (
+        Environment(path=project) as env,
+        Runtime(
+            env=env,
+            options=RuntimeOptions(
+                permissions=RuntimePermissions(allow_read=[str(project)]),
+            ),
+        ) as runtime,
+    ):
+        assert runtime(Script(source))() == 42
+
+
+def test_script_from_file_requires_read_permission_for_entrypoint(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    outside = tmp_path / "outside.js"
+    outside.write_text('export default () => "outside-entrypoint";', encoding="utf-8")
+
+    with (
+        pytest.raises(BelgieRuntimeError) as exc_info,
+        Environment(path=project) as env,
+        Runtime(
+            env=env,
+            options=RuntimeOptions(
+                permissions=RuntimePermissions(allow_read=[str(project)]),
+            ),
+        ) as runtime,
+    ):
+        runtime(Script.from_file(outside))()
+
+    assert "outside-entrypoint" not in str(exc_info.value)
+
+    allowed = project / "main.js"
+    allowed.write_text('export default () => "allowed-entrypoint";', encoding="utf-8")
+    with (
+        Environment(path=project) as env,
+        Runtime(
+            env=env,
+            options=RuntimeOptions(
+                permissions=RuntimePermissions(allow_read=[str(project)]),
+            ),
+        ) as runtime,
+    ):
+        assert runtime(Script.from_file(allowed))() == "allowed-entrypoint"
 
 
 def test_package_worker_applies_memory_options_with_cli_snapshot(tmp_path: Path):

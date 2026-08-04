@@ -3,6 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { FetchLike, Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { jsonSchemaValidator } from "@modelcontextprotocol/sdk/validation";
 import { z } from "zod";
 
 import { MemoryOAuthProvider, oauthState, startOAuthCallbackServer } from "./oauth";
@@ -190,12 +191,26 @@ function renderToolTypes(tools: Tool[]): string {
   ].join("\n");
 }
 
+// Codegen only lists tools; skip Ajv so non-standard formats (e.g. Pydantic "path") stay quiet.
+const codegenJsonSchemaValidator = {
+  getValidator() {
+    return (input: unknown) => ({
+      valid: true as const,
+      data: input,
+      errorMessage: undefined,
+    });
+  },
+} as jsonSchemaValidator;
+
 function createConnection(
   url: URL,
   headers: Readonly<Record<string, string>>,
   provider: MemoryOAuthProvider | undefined,
 ) {
-  const client = new Client({ name: "belgie-mcp-codegen", version: "0.1.0" }, { capabilities: {} });
+  const client = new Client(
+    { name: "belgie-mcp-codegen", version: "0.1.0" },
+    { capabilities: {}, jsonSchemaValidator: codegenJsonSchemaValidator },
+  );
   const transport = new StreamableHTTPClientTransport(url, {
     ...(provider === undefined ? {} : { authProvider: provider }),
     fetch: codegenFetch(url),

@@ -12,10 +12,19 @@ use deno_resolver::factory::ResolverFactory;
 use deno_resolver::graph::DefaultDenoResolverRc;
 use deno_resolver::loader::AllowJsonImports;
 use deno_resolver::loader::ModuleLoaderRc;
+use deno_runtime::deno_permissions::PermissionsContainer;
 
 use crate::embed::context::EmbedContext;
 use crate::embed::graph::build_module_graph_with_header_overrides;
+use crate::embed::read_permissions::ModuleReadChecker;
 use crate::embed::sys::EmbedSys;
+
+#[derive(Debug)]
+pub(crate) enum MainModuleSource {
+    InMemory(String),
+    PreloadedFile(String),
+    OnDisk,
+}
 
 pub(crate) struct PackageRuntimeState {
     pub graph: Arc<Mutex<ModuleGraph>>,
@@ -23,6 +32,7 @@ pub(crate) struct PackageRuntimeState {
     pub deno_resolver: DefaultDenoResolverRc<EmbedSys>,
     pub memory_files: deno_resolver::loader::MemoryFilesRc,
     pub module_loader: ModuleLoaderRc<EmbedSys>,
+    pub module_read_checker: ModuleReadChecker,
     pub allow_json_imports: AllowJsonImports,
 }
 
@@ -34,6 +44,7 @@ impl PackageRuntimeState {
             deno_resolver: self.deno_resolver.clone(),
             memory_files: self.memory_files.clone(),
             module_loader: self.module_loader.clone(),
+            module_read_checker: self.module_read_checker.clone(),
             allow_json_imports: self.allow_json_imports,
         }
     }
@@ -49,11 +60,21 @@ impl std::fmt::Debug for PackageRuntimeState {
 pub(crate) async fn prepare_package_runtime(
     context: Rc<EmbedContext>,
     main_module: ModuleSpecifier,
-    main_source: Option<String>,
+    main_source: MainModuleSource,
     file_header_overrides: HashMap<ModuleSpecifier, HashMap<String, String>>,
+    permissions: &PermissionsContainer,
 ) -> Result<PackageRuntimeState, AnyError> {
-    if let Some(main_source) = main_source {
-        context.insert_memory_file(Url::parse(main_module.as_str())?, main_source);
+    match main_source {
+        MainModuleSource::InMemory(source) => {
+            context.insert_memory_file(Url::parse(main_module.as_str())?, source);
+        }
+        MainModuleSource::PreloadedFile(source) => {
+            context
+                .module_read_checker()
+                .ensure_specifier(permissions, &main_module)?;
+            context.insert_memory_file(Url::parse(main_module.as_str())?, source);
+        }
+        MainModuleSource::OnDisk => {}
     }
 
     let npm_installer_factory = context.npm_installer_factory();
@@ -65,6 +86,7 @@ pub(crate) async fn prepare_package_runtime(
         &context,
         vec![main_module],
         file_header_overrides,
+        permissions,
     )
     .await?;
     npm_installer_factory
@@ -90,6 +112,7 @@ pub(crate) async fn prepare_package_runtime(
         deno_resolver,
         memory_files,
         module_loader,
+        module_read_checker: context.module_read_checker().clone(),
         allow_json_imports: context.allow_json_imports(),
     })
 }

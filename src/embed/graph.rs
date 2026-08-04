@@ -1,7 +1,11 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use deno_core::error::AnyError;
 use deno_error::JsErrorBox;
+use deno_graph::source::{
+    CacheInfo, EnsureCachedFuture, LoadError, LoadFuture, LoadOptions, Loader,
+};
 use deno_graph::{
     CheckJsOption, GraphKind, ModuleErrorKind, ModuleGraph, ModuleGraphError, ModuleSpecifier,
     WalkOptions,
@@ -11,10 +15,62 @@ use deno_resolver::deno_json::JsxImportSourceConfigResolver;
 use deno_resolver::factory::ResolverFactory;
 use deno_resolver::graph::{NpmTypesResolutionMode, format_deno_graph_error};
 use deno_resolver::loader::AllowJsonImports;
+use deno_runtime::deno_permissions::PermissionsContainer;
 use deno_semver::jsr::JsrPackageReqReference;
 
 use crate::embed::context::EmbedContext;
+use crate::embed::read_permissions::ModuleReadChecker;
 use crate::embed::sys::EmbedSys;
+
+struct PermissionedGraphLoader<'a, TLoader> {
+    inner: &'a TLoader,
+    permissions: &'a PermissionsContainer,
+    read_checker: &'a ModuleReadChecker,
+}
+
+impl<TLoader: Loader> Loader for PermissionedGraphLoader<'_, TLoader> {
+    fn max_redirects(&self) -> usize {
+        self.inner.max_redirects()
+    }
+
+    fn cache_info_enabled(&self) -> bool {
+        self.inner.cache_info_enabled()
+    }
+
+    fn get_cache_info(&self, specifier: &ModuleSpecifier) -> Option<CacheInfo> {
+        self.inner.get_cache_info(specifier)
+    }
+
+    fn load(&self, specifier: &ModuleSpecifier, options: LoadOptions) -> LoadFuture {
+        let specifier = match self
+            .read_checker
+            .ensure_specifier(self.permissions, specifier)
+        {
+            Ok(specifier) => specifier,
+            Err(error) => {
+                return Box::pin(async move { Err(LoadError::Other(Arc::new(error))) });
+            }
+        };
+        self.inner.load(&specifier, options)
+    }
+
+    fn ensure_cached(
+        &self,
+        specifier: &ModuleSpecifier,
+        options: LoadOptions,
+    ) -> EnsureCachedFuture {
+        let specifier = match self
+            .read_checker
+            .ensure_specifier(self.permissions, specifier)
+        {
+            Ok(specifier) => specifier,
+            Err(error) => {
+                return Box::pin(async move { Err(LoadError::Other(Arc::new(error))) });
+            }
+        };
+        self.inner.ensure_cached(&specifier, options)
+    }
+}
 
 // Install/cache only. Trimmed from Deno's cli/tools/pm/cache_deps.rs.
 // Runtime graphs must not use this: Deno's cache_deps walk is for `deno install`,
@@ -101,21 +157,29 @@ pub(crate) async fn build_install_module_graph(
     context: &EmbedContext,
 ) -> Result<ModuleGraph, AnyError> {
     let roots = collect_graph_roots(context, context.install_graph_roots().to_vec(), true).await?;
-    build_module_graph_inner(context, roots, HashMap::new()).await
+    build_module_graph_inner(context, roots, HashMap::new(), None).await
 }
 
 pub(crate) async fn build_module_graph_with_header_overrides(
     context: &EmbedContext,
     extra_roots: Vec<ModuleSpecifier>,
     file_header_overrides: HashMap<ModuleSpecifier, HashMap<String, String>>,
+    permissions: &PermissionsContainer,
 ) -> Result<ModuleGraph, AnyError> {
-    build_module_graph_inner(context, extra_roots, file_header_overrides).await
+    build_module_graph_inner(
+        context,
+        extra_roots,
+        file_header_overrides,
+        Some(permissions),
+    )
+    .await
 }
 
 async fn build_module_graph_inner(
     context: &EmbedContext,
     roots: Vec<ModuleSpecifier>,
     file_header_overrides: HashMap<ModuleSpecifier, HashMap<String, String>>,
+    permissions: Option<&PermissionsContainer>,
 ) -> Result<ModuleGraph, AnyError> {
     let resolver_factory = context.resolver_factory();
     let npm_installer_factory = context.npm_installer_factory();
@@ -155,11 +219,20 @@ async fn build_module_graph_inner(
     for (specifier, headers) in file_header_overrides {
         graph_loader.insert_file_header_override(specifier, headers);
     }
+    let permissioned_loader = permissions.map(|permissions| PermissionedGraphLoader {
+        inner: &*graph_loader,
+        permissions,
+        read_checker: context.module_read_checker(),
+    });
+    let graph_loader: &dyn Loader = match &permissioned_loader {
+        Some(loader) => loader,
+        None => &*graph_loader,
+    };
     graph
         .build(
             roots,
             Vec::new(),
-            &*graph_loader,
+            graph_loader,
             deno_graph::BuildOptions {
                 jsr_url_provider: &jsr_url_provider,
                 jsr_version_resolver: std::borrow::Cow::Borrowed(jsr_version_resolver),
@@ -226,6 +299,7 @@ mod tests {
     use super::*;
     use crate::embed::{EmbedContext, EmbedContextOptions};
     use crate::packages::{dependencies_from_mapping, specified_import_map};
+    use deno_runtime::permissions::RuntimePermissionDescriptorParser;
     use std::collections::BTreeMap;
     use std::fs;
     use std::sync::Arc;
@@ -329,10 +403,17 @@ mod tests {
         .unwrap();
         let entry = ModuleSpecifier::from_file_path(cwd.join("node_modules/@acme/pkg/dist/cli.js"))
             .unwrap();
-        let graph =
-            build_module_graph_with_header_overrides(&context, vec![entry.clone()], HashMap::new())
-                .await
-                .unwrap();
+        let permissions = PermissionsContainer::allow_all(Arc::new(
+            RuntimePermissionDescriptorParser::new(EmbedSys::default()),
+        ));
+        let graph = build_module_graph_with_header_overrides(
+            &context,
+            vec![entry.clone()],
+            HashMap::new(),
+            &permissions,
+        )
+        .await
+        .unwrap();
         assert_eq!(graph.roots.len(), 1);
         assert_eq!(graph.roots[0], entry);
         assert!(
