@@ -7,18 +7,78 @@ use crate::types::error::BindingError;
 
 const ACQUIRE_RETRY_DELAY: Duration = Duration::from_millis(5);
 
-static PROCESS_CONTEXT_LOCK: Mutex<bool> = Mutex::new(false);
+static PROCESS_CONTEXT_LOCK: ProcessContextLock = ProcessContextLock::new();
 
 #[derive(Debug)]
-pub(crate) struct ProcessContextGuard;
+struct ProcessContextLock {
+    active: Mutex<bool>,
+}
 
-pub(crate) fn blocking_guard() -> ProcessContextGuard {
-    loop {
-        if let Some(guard) = try_acquire_guard() {
-            return guard;
+#[derive(Debug)]
+pub(crate) struct ProcessContextGuard<'lock> {
+    lock: &'lock ProcessContextLock,
+}
+
+impl ProcessContextLock {
+    const fn new() -> Self {
+        Self {
+            active: Mutex::new(false),
         }
-        std::thread::sleep(ACQUIRE_RETRY_DELAY);
     }
+
+    fn blocking_guard(&self) -> ProcessContextGuard<'_> {
+        loop {
+            if let Some(guard) = self.try_acquire_guard() {
+                return guard;
+            }
+            std::thread::sleep(ACQUIRE_RETRY_DELAY);
+        }
+    }
+
+    async fn acquire_guard(
+        &self,
+        cancel_rx: &mut watch::Receiver<bool>,
+    ) -> Result<ProcessContextGuard<'_>, BindingError> {
+        if *cancel_rx.borrow() {
+            return Err(command_cancelled());
+        }
+        loop {
+            if let Some(guard) = self.try_acquire_guard() {
+                if *cancel_rx.borrow() {
+                    drop(guard);
+                    return Err(command_cancelled());
+                }
+                return Ok(guard);
+            }
+            tokio::select! {
+                changed = cancel_rx.changed() => {
+                    if watch_cancelled(changed, cancel_rx) {
+                        return Err(command_cancelled());
+                    }
+                }
+                () = tokio::time::sleep(ACQUIRE_RETRY_DELAY) => {}
+            }
+        }
+    }
+
+    fn try_acquire_guard(&self) -> Option<ProcessContextGuard<'_>> {
+        let mut active = match self.active.try_lock() {
+            Ok(active) => active,
+            Err(TryLockError::WouldBlock) => return None,
+            Err(TryLockError::Poisoned(error)) => {
+                panic!("process context lock should not be poisoned: {error}");
+            }
+        };
+        if *active {
+            return None;
+        }
+        *active = true;
+        Some(ProcessContextGuard { lock: self })
+    }
+}
+
+pub(crate) fn blocking_guard() -> ProcessContextGuard<'static> {
+    PROCESS_CONTEXT_LOCK.blocking_guard()
 }
 
 pub(crate) fn command_cancelled() -> BindingError {
@@ -34,47 +94,15 @@ pub(crate) fn watch_cancelled(
 
 pub(crate) async fn acquire_guard(
     cancel_rx: &mut watch::Receiver<bool>,
-) -> Result<ProcessContextGuard, BindingError> {
-    if *cancel_rx.borrow() {
-        return Err(command_cancelled());
-    }
-    loop {
-        if let Some(guard) = try_acquire_guard() {
-            if *cancel_rx.borrow() {
-                drop(guard);
-                return Err(command_cancelled());
-            }
-            return Ok(guard);
-        }
-        tokio::select! {
-            changed = cancel_rx.changed() => {
-                if watch_cancelled(changed, cancel_rx) {
-                    return Err(command_cancelled());
-                }
-            }
-            () = tokio::time::sleep(ACQUIRE_RETRY_DELAY) => {}
-        }
-    }
+) -> Result<ProcessContextGuard<'static>, BindingError> {
+    PROCESS_CONTEXT_LOCK.acquire_guard(cancel_rx).await
 }
 
-fn try_acquire_guard() -> Option<ProcessContextGuard> {
-    let mut active = match PROCESS_CONTEXT_LOCK.try_lock() {
-        Ok(active) => active,
-        Err(TryLockError::WouldBlock) => return None,
-        Err(TryLockError::Poisoned(error)) => {
-            panic!("process context lock should not be poisoned: {error}");
-        }
-    };
-    if *active {
-        return None;
-    }
-    *active = true;
-    Some(ProcessContextGuard)
-}
-
-impl Drop for ProcessContextGuard {
+impl Drop for ProcessContextGuard<'_> {
     fn drop(&mut self) {
-        *PROCESS_CONTEXT_LOCK
+        *self
+            .lock
+            .active
             .lock()
             .expect("process context lock should not be poisoned") = false;
     }
@@ -82,7 +110,7 @@ impl Drop for ProcessContextGuard {
 
 #[cfg(test)]
 mod tests {
-    use super::{acquire_guard, blocking_guard, command_cancelled, try_acquire_guard};
+    use super::{ProcessContextLock, command_cancelled};
     use std::time::Duration;
     use tokio::sync::watch;
 
@@ -96,34 +124,42 @@ mod tests {
 
     #[test]
     fn blocking_guard_excludes_other_callers() {
-        let guard = blocking_guard();
-        assert!(try_acquire_guard().is_none());
+        let context_lock = ProcessContextLock::new();
+        let guard = context_lock.blocking_guard();
+        assert!(context_lock.try_acquire_guard().is_none());
 
         drop(guard);
 
-        let next = try_acquire_guard().expect("guard should be available after release");
+        let next = context_lock
+            .try_acquire_guard()
+            .expect("guard should be available after release");
         drop(next);
     }
 
     #[test]
     fn async_guard_waits_for_blocking_guard_to_release() {
         run_async(async {
-            let guard = blocking_guard();
+            let context_lock = ProcessContextLock::new();
+            let guard = context_lock.blocking_guard();
             let (_cancel_tx, mut cancel_rx) = watch::channel(false);
 
-            let timed_out =
-                tokio::time::timeout(Duration::from_millis(20), acquire_guard(&mut cancel_rx))
-                    .await
-                    .is_err();
+            let timed_out = tokio::time::timeout(
+                Duration::from_millis(20),
+                context_lock.acquire_guard(&mut cancel_rx),
+            )
+            .await
+            .is_err();
             assert!(timed_out);
 
             drop(guard);
 
-            let next =
-                tokio::time::timeout(Duration::from_millis(50), acquire_guard(&mut cancel_rx))
-                    .await
-                    .expect("guard acquisition should finish")
-                    .expect("guard should acquire after release");
+            let next = tokio::time::timeout(
+                Duration::from_millis(50),
+                context_lock.acquire_guard(&mut cancel_rx),
+            )
+            .await
+            .expect("guard acquisition should finish")
+            .expect("guard should acquire after release");
             drop(next);
         });
     }
@@ -131,9 +167,10 @@ mod tests {
     #[test]
     fn async_guard_waiting_for_context_is_cancellable() {
         run_async(async {
-            let guard = blocking_guard();
+            let context_lock = ProcessContextLock::new();
+            let guard = context_lock.blocking_guard();
             let (cancel_tx, mut cancel_rx) = watch::channel(false);
-            let mut waiting = Box::pin(acquire_guard(&mut cancel_rx));
+            let mut waiting = Box::pin(context_lock.acquire_guard(&mut cancel_rx));
 
             let timed_out = tokio::time::timeout(Duration::from_millis(20), &mut waiting)
                 .await
@@ -151,11 +188,13 @@ mod tests {
             drop(guard);
 
             let (_cancel_tx, mut cancel_rx) = watch::channel(false);
-            let next =
-                tokio::time::timeout(Duration::from_millis(50), acquire_guard(&mut cancel_rx))
-                    .await
-                    .expect("guard acquisition should finish after cancellation")
-                    .expect("guard should acquire after cancellation");
+            let next = tokio::time::timeout(
+                Duration::from_millis(50),
+                context_lock.acquire_guard(&mut cancel_rx),
+            )
+            .await
+            .expect("guard acquisition should finish after cancellation")
+            .expect("guard should acquire after cancellation");
             drop(next);
         });
     }
