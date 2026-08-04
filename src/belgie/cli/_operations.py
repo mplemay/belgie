@@ -56,17 +56,34 @@ def create_environment(
     )
 
 
-def lock_project(project: BelgieProject) -> EnvironmentInstallResult:
+def lock_project(
+    project: BelgieProject,
+    *,
+    minimum_dependency_age: str | None = None,
+) -> EnvironmentInstallResult:
     lockfile_path = project.lockfile_path
     with (
         preserve_file_on_error(lockfile_path),
-        create_environment(project, frozen=False) as environment,
+        create_environment(
+            project,
+            frozen=False,
+            minimum_dependency_age=minimum_dependency_age,
+        ) as environment,
     ):
         return environment.lock(lockfile=lockfile_path)
 
 
-def install_project(project: BelgieProject, *, frozen: bool) -> EnvironmentInstallResult:
-    with create_environment(project, frozen=frozen) as environment:
+def install_project(
+    project: BelgieProject,
+    *,
+    frozen: bool,
+    minimum_dependency_age: str | None = None,
+) -> EnvironmentInstallResult:
+    with create_environment(
+        project,
+        frozen=frozen,
+        minimum_dependency_age=minimum_dependency_age,
+    ) as environment:
         return environment.install()
 
 
@@ -95,7 +112,13 @@ def run_command(
             )(*args)
 
 
-def add_dependency(project: BelgieProject, *, alias: str, specifier: str) -> EnvironmentInstallResult:
+def add_dependency(
+    project: BelgieProject,
+    *,
+    alias: str,
+    specifier: str,
+    minimum_dependency_age: str | None = None,
+) -> EnvironmentInstallResult:
     document = deepcopy(project.pyproject)
     set_dependency_in_document(document, alias, specifier)
     updated_project = _load_project_from_document(project.root, document)
@@ -105,7 +128,11 @@ def add_dependency(project: BelgieProject, *, alias: str, specifier: str) -> Env
     with (
         preserve_file_on_error(lockfile_path),
         preserve_file_on_error(pyproject_path),
-        create_environment(updated_project, frozen=False) as environment,
+        create_environment(
+            updated_project,
+            frozen=False,
+            minimum_dependency_age=minimum_dependency_age,
+        ) as environment,
     ):
         result = environment.lock(lockfile=lockfile_path)
         update_belgie_dependencies(project.root, {alias: specifier})

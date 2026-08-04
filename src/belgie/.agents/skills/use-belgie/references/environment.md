@@ -34,7 +34,7 @@ with Environment(
     env.install()
 ```
 
-Deno 2.9 enables a default 24-hour minimum dependency age for npm packages. Configure the same policy with
+Deno 2.9 enables a default 24-hour minimum dependency age for npm and JSR packages. Configure the same policy with
 `minimum_dependency_age`, using Deno's supported minutes, RFC3339 date, `YYYY-MM-DD`, or ISO-8601 duration syntax
 (`0` disables; `None` uses Deno's default):
 
@@ -42,7 +42,9 @@ Deno 2.9 enables a default 24-hour minimum dependency age for npm packages. Conf
 EnvironmentOptions(minimum_dependency_age="P7D")
 ```
 
-`minimum_dependency_age_minutes` remains available for compatibility with existing code.
+`minimum_dependency_age_minutes` remains available for compatibility with existing code. In projects, set
+`[tool.belgie].minimum-dependency-age` or pass `--minimum-dependency-age` / `--min-dep-age` on `add`, `lock`,
+`install`, and `update`.
 
 For CSS module imports in scripts, pass `RuntimeOptions(enable_raw_imports=True)` when binding `Runtime`.
 

@@ -10,7 +10,14 @@ import pytest
 import rtoml
 
 from belgie.cli import _operations
-from belgie.cli._operations import add_dependency, create_environment, run_command, update_project
+from belgie.cli._operations import (
+    add_dependency,
+    create_environment,
+    install_project,
+    lock_project,
+    run_command,
+    update_project,
+)
 from belgie.cli._project import ProjectError, load_project
 
 
@@ -151,6 +158,49 @@ def test_update_project_flag_overrides_project_minimum_dependency_age(tmp_path: 
     (tmp_path / "pyproject.toml").write_text(rtoml.dumps(document, pretty=True), encoding="utf-8")
 
     update_project(load_project(tmp_path), ["camelcase"], latest=False, minimum_dependency_age="0")
+
+    assert FakeEnvironment.last is not None
+    assert FakeEnvironment.last.options is not None
+    assert "minimum_dependency_age=Some(Disabled)" in repr(FakeEnvironment.last.options)
+
+
+@pytest.mark.parametrize(
+    ("operation", "kwargs"),
+    [
+        pytest.param(
+            lock_project,
+            {},
+            id="lock",
+        ),
+        pytest.param(
+            install_project,
+            {"frozen": False},
+            id="install",
+        ),
+        pytest.param(
+            add_dependency,
+            {"alias": "std_path", "specifier": "jsr:@std/path@^1"},
+            id="add",
+        ),
+    ],
+)
+def test_resolution_operations_flag_overrides_project_minimum_dependency_age(
+    tmp_path: Path,
+    operation: Callable[..., object],
+    kwargs: dict[str, object],
+) -> None:
+    document = {
+        "project": {"name": "demo"},
+        "tool": {
+            "belgie": {
+                "minimum-dependency-age": "P7D",
+                "dependencies": {"camelcase": "8.0.0"},
+            },
+        },
+    }
+    (tmp_path / "pyproject.toml").write_text(rtoml.dumps(document, pretty=True), encoding="utf-8")
+
+    operation(load_project(tmp_path), minimum_dependency_age="0", **kwargs)
 
     assert FakeEnvironment.last is not None
     assert FakeEnvironment.last.options is not None

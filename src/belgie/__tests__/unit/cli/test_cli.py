@@ -132,10 +132,27 @@ def test_run_command_forwards_module_override(
 
 
 @pytest.mark.parametrize("flag", ["--minimum-dependency-age", "--min-dep-age"])
-def test_update_command_forwards_minimum_dependency_age(
+@pytest.mark.parametrize(
+    ("command", "extra_args", "operation_attr"),
+    [
+        pytest.param("update", ["camelcase"], "update_project", id="update"),
+        pytest.param("lock", [], "lock_project", id="lock"),
+        pytest.param("install", [], "install_project", id="install"),
+        pytest.param(
+            "add",
+            ["std_path", "jsr:@std/path@^1"],
+            "add_dependency",
+            id="add",
+        ),
+    ],
+)
+def test_resolution_commands_forward_minimum_dependency_age(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     flag: str,
+    command: str,
+    extra_args: list[str],
+    operation_attr: str,
 ) -> None:
     (tmp_path / "pyproject.toml").write_text(
         """
@@ -149,18 +166,20 @@ camelcase = "npm:camelcase@8"
     )
     received: list[str | None] = []
 
-    def fake_update_project(*args: object, minimum_dependency_age: str | None, **kwargs: object) -> SimpleNamespace:
+    def fake_operation(*args: object, minimum_dependency_age: str | None = None, **kwargs: object) -> SimpleNamespace:
         received.append(minimum_dependency_age)
-        return SimpleNamespace(changes=[])
+        if operation_attr == "update_project":
+            return SimpleNamespace(changes=[])
+        return SimpleNamespace(dependencies=1, lockfile=str(tmp_path / "deno.lock"))
 
-    monkeypatch.setattr("belgie.cli.__main__.update_project", fake_update_project)
+    monkeypatch.setattr(f"belgie.cli.__main__.{operation_attr}", fake_operation)
 
     result = runner.invoke(
         app,
-        ["update", "-C", str(tmp_path), "camelcase", flag, "0"],
+        [command, "-C", str(tmp_path), *extra_args, flag, "0"],
     )
 
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output
     assert received == ["0"]
 
 

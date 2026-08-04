@@ -1,11 +1,7 @@
 # Pyproject Example
 
-<<<<<<< HEAD
-This example declares Belgie package dependencies and a seven-day minimum dependency age in `pyproject.toml`:
-=======
-This example declares Belgie package dependencies in `pyproject.toml` and manages them with the CLI. Use it when a
-project should keep JavaScript dependency declarations beside its Python configuration:
->>>>>>> origin/main
+This example declares Belgie package dependencies and a seven-day minimum dependency age in `pyproject.toml`. Use it
+when a project should keep JavaScript dependency declarations beside its Python configuration:
 
 ```toml
 [tool.belgie]
@@ -27,11 +23,7 @@ uv run main
 ```
 
 `uv run main` loads the same `[tool.belgie.dependencies]` table, creates a Belgie `Environment`, and imports
-<<<<<<< HEAD
-`std_path` from TypeScript. The project setting applies to all dependency-resolution commands; the `update` flag
-overrides it for one update.
-=======
-`std_path` from TypeScript.
+`std_path` from TypeScript. The project setting applies to all dependency-resolution commands; CLI flags such as
+`--minimum-dependency-age` override it for one command.
 
 See the [CLI guide](../../../docs/cli.md) for the project workflow and frozen-install options.
->>>>>>> origin/main
