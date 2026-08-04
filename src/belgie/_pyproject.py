@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import tomllib
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Final
 
@@ -95,7 +95,7 @@ def parse_belgie_tool_config(document: dict[str, Any]) -> BelgieToolConfig:
 
 def _format_minimum_dependency_age_datetime(value: datetime) -> str:
     if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
+        value = value.replace(tzinfo=UTC)
     text = value.isoformat()
     if text.endswith("+00:00"):
         return f"{text[:-6]}Z"

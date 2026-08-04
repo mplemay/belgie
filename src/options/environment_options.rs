@@ -19,7 +19,7 @@ pub(crate) struct EnvironmentOptions {
     skip_types: bool,
     unsafely_ignore_certificate_errors: Option<Vec<String>>,
     import_package_lockfile: bool,
-    minimum_dependency_age: Option<NewestDependencyDate>,
+    minimum_dependency_age: Option<String>,
     minimum_dependency_age_minutes: Option<u64>,
 }
 
@@ -62,7 +62,7 @@ impl EnvironmentOptions {
         skip_types: bool,
         unsafely_ignore_certificate_errors: Option<Vec<String>>,
         import_package_lockfile: bool,
-        minimum_dependency_age: Option<NewestDependencyDate>,
+        minimum_dependency_age: Option<String>,
         minimum_dependency_age_minutes: Option<u64>,
     ) -> Self {
         Self {
@@ -135,13 +135,19 @@ impl EnvironmentOptions {
         self.minimum_dependency_age_minutes
     }
 
-    pub(crate) fn minimum_dependency_age(&self) -> Option<NewestDependencyDate> {
-        self.minimum_dependency_age
+    pub(crate) fn minimum_dependency_age(&self) -> Option<&str> {
+        self.minimum_dependency_age.as_deref()
     }
 
     pub(crate) fn newest_dependency_date(&self) -> Result<Option<NewestDependencyDate>, AnyError> {
-        if let Some(minimum_dependency_age) = self.minimum_dependency_age {
-            return Ok(Some(minimum_dependency_age));
+        if let Some(minimum_dependency_age) = self.minimum_dependency_age.as_deref() {
+            return Ok(Some(
+                deno_config::parse_minutes_duration_or_date(
+                    &sys_traits::impls::RealSys,
+                    minimum_dependency_age,
+                )
+                .map_err(|error| anyhow!("{error}"))?,
+            ));
         }
         let Some(minutes) = self.minimum_dependency_age_minutes else {
             return Ok(None);
@@ -265,11 +271,7 @@ mod tests {
             false,
             None,
             false,
-            Some(NewestDependencyDate::Enabled(
-                chrono::DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
-                    .unwrap()
-                    .with_timezone(&chrono::Utc),
-            )),
+            Some("2025-01-01T00:00:00Z".to_string()),
             None,
         );
 
@@ -279,6 +281,65 @@ mod tests {
                 if date == chrono::DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
                     .unwrap()
                     .with_timezone(&chrono::Utc)
+        ));
+    }
+
+    #[test]
+    fn minimum_dependency_age_relative_string_resolves_at_query_time() {
+        let options = EnvironmentOptions::new(
+            CacheSetting::Use,
+            true,
+            AllowJsonImports::WithAttribute,
+            None,
+            None,
+            deno_npm_installer::graph::NpmCachingStrategy::Eager,
+            false,
+            true,
+            false,
+            false,
+            None,
+            false,
+            Some("120".to_string()),
+            None,
+        );
+
+        let first = options.newest_dependency_date().unwrap();
+        let second = options.newest_dependency_date().unwrap();
+        let (
+            Some(NewestDependencyDate::Enabled(first_cutoff)),
+            Some(NewestDependencyDate::Enabled(second_cutoff)),
+        ) = (first, second)
+        else {
+            panic!("expected enabled newest dependency dates");
+        };
+
+        assert!(second_cutoff >= first_cutoff);
+        let now = chrono::Utc::now();
+        assert!(first_cutoff <= now - chrono::Duration::minutes(119));
+        assert!(second_cutoff > now - chrono::Duration::minutes(121));
+    }
+
+    #[test]
+    fn minimum_dependency_age_zero_string_disables_filter() {
+        let options = EnvironmentOptions::new(
+            CacheSetting::Use,
+            true,
+            AllowJsonImports::WithAttribute,
+            None,
+            None,
+            deno_npm_installer::graph::NpmCachingStrategy::Eager,
+            false,
+            true,
+            false,
+            false,
+            None,
+            false,
+            Some("0".to_string()),
+            None,
+        );
+        assert!(matches!(
+            options.newest_dependency_date().unwrap(),
+            Some(NewestDependencyDate::Disabled),
         ));
     }
 }

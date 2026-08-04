@@ -155,7 +155,7 @@ def list_dependencies(project: ProjectDir = None) -> None:
 @app.command(
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
 )
-def run(
+def run(  # noqa: PLR0913, PLR0917
     ctx: typer.Context,
     project: ProjectDir = None,
     cwd: Annotated[
@@ -170,9 +170,17 @@ def run(
         ),
     ] = None,
     frozen: Annotated[bool, typer.Option("--frozen/--no-frozen", help="Require and use the existing deno.lock")] = True,  # noqa: FBT002
+    minimum_dependency_age: MinimumDependencyAge = None,
 ) -> None:
     discovered = discover_project(project=project)
-    run_command(discovered, ctx.args, cwd=cwd, frozen=frozen, module=module)
+    run_command(
+        discovered,
+        ctx.args,
+        cwd=cwd,
+        frozen=frozen,
+        module=module,
+        minimum_dependency_age=minimum_dependency_age,
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> None:

@@ -120,7 +120,7 @@ def test_environment_options_accept_minimum_dependency_age(value: str) -> None:
     options = EnvironmentOptions(minimum_dependency_age=value)
 
     assert isinstance(options, EnvironmentOptions)
-    assert "minimum_dependency_age=Some(" in repr(options)
+    assert f'minimum_dependency_age=Some("{value}")' in repr(options)
 
 
 def test_environment_options_rejects_conflicting_minimum_dependency_age_options() -> None:

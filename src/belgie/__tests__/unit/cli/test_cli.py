@@ -142,6 +142,7 @@ def test_run_command_forwards_module_override(
             ("add", ["std_path", "jsr:@std/path@^1"], "add_dependency"),
             id="add",
         ),
+        pytest.param(("run", ["echo"], "run_command"), id="run"),
     ],
 )
 def test_resolution_commands_forward_minimum_dependency_age(
@@ -163,10 +164,16 @@ camelcase = "npm:camelcase@8"
     )
     received: list[str | None] = []
 
-    def fake_operation(*args: object, minimum_dependency_age: str | None = None, **kwargs: object) -> SimpleNamespace:
+    def fake_operation(
+        *args: object,
+        minimum_dependency_age: str | None = None,
+        **kwargs: object,
+    ) -> SimpleNamespace | None:
         received.append(minimum_dependency_age)
         if operation_attr == "update_project":
             return SimpleNamespace(changes=[])
+        if operation_attr == "run_command":
+            return None
         return SimpleNamespace(dependencies=1, lockfile=str(tmp_path / "deno.lock"))
 
     monkeypatch.setattr(f"belgie.cli.__main__.{operation_attr}", fake_operation)

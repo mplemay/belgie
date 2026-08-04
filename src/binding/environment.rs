@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, path::PathBuf};
 
 use deno_cache_dir::file_fetcher::CacheSetting;
-use deno_config::deno_json::{NewestDependencyDate, NodeModulesDirMode, NodeModulesLinkerMode};
+use deno_config::deno_json::{NodeModulesDirMode, NodeModulesLinkerMode};
 use deno_npm_installer::graph::NpmCachingStrategy;
 use deno_resolver::loader::AllowJsonImports;
 use pyo3::{
@@ -91,9 +91,9 @@ impl PyEnvironmentOptions {
                 "minimum_dependency_age and minimum_dependency_age_minutes cannot be used together",
             ));
         }
-        let minimum_dependency_age = minimum_dependency_age
-            .map(parse_minimum_dependency_age)
-            .transpose()?;
+        if let Some(value) = minimum_dependency_age {
+            validate_minimum_dependency_age(value)?;
+        }
         Ok(Self {
             inner: EnvironmentOptions::new(
                 cache_setting.0,
@@ -108,7 +108,7 @@ impl PyEnvironmentOptions {
                 skip_types,
                 normalize_certificate_errors(unsafely_ignore_certificate_errors)?,
                 import_package_lockfile,
-                minimum_dependency_age,
+                minimum_dependency_age.map(str::to_owned),
                 minimum_dependency_age_minutes,
             ),
             cache_setting: cache_setting.1,
@@ -134,14 +134,14 @@ impl PyEnvironmentOptions {
     }
 }
 
-fn parse_minimum_dependency_age(value: &str) -> PyResult<NewestDependencyDate> {
-    deno_config::parse_minutes_duration_or_date(&sys_traits::impls::RealSys, value).map_err(
-        |error| {
+fn validate_minimum_dependency_age(value: &str) -> PyResult<()> {
+    deno_config::parse_minutes_duration_or_date(&sys_traits::impls::RealSys, value)
+        .map(|_| ())
+        .map_err(|error| {
             PyValueError::new_err(format!(
                 "minimum_dependency_age must be minutes, an RFC3339 date, a YYYY-MM-DD date, or an ISO-8601 duration: {error}"
             ))
-        },
-    )
+        })
 }
 
 #[pymethods]
