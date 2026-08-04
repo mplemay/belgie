@@ -149,18 +149,14 @@ impl RuntimeWorkerOptions {
             || self.trace_ops.is_some()
     }
 
-    pub(crate) fn permissions_container(
-        &self,
-        managed_read_roots: &[PathBuf],
-    ) -> Result<PermissionsContainer, String> {
+    pub(crate) fn permissions_container(&self) -> Result<PermissionsContainer, String> {
         Ok(PermissionsContainer::new(
             Arc::new(
                 deno_runtime::permissions::RuntimePermissionDescriptorParser::new(
                     EmbedSys::default(),
                 ),
             ),
-            self.permissions
-                .to_permissions_with_read_roots(managed_read_roots)?,
+            self.permissions.to_permissions()?,
         ))
     }
 
@@ -202,64 +198,19 @@ impl RuntimePermissionOptions {
         Self::Configured(Box::new(options))
     }
 
-    pub(crate) fn to_permissions_with_read_roots(
-        &self,
-        managed_read_roots: &[PathBuf],
-    ) -> Result<Permissions, String> {
+    pub(crate) fn to_permissions(&self) -> Result<Permissions, String> {
         match self {
             Self::AllowAll => Ok(Permissions::allow_all()),
-            Self::None { prompt } => {
-                if managed_read_roots.is_empty() {
-                    return Ok(if *prompt {
-                        Permissions::none_with_prompt()
-                    } else {
-                        Permissions::none_without_prompt()
-                    });
-                }
-                let allow_read = managed_read_roots
-                    .iter()
-                    .map(|path| path.to_string_lossy().into_owned())
-                    .collect();
-                let options = PermissionsOptions {
-                    allow_read: Some(allow_read),
-                    prompt: *prompt,
-                    ..Default::default()
-                };
-                let parser = deno_runtime::permissions::RuntimePermissionDescriptorParser::new(
-                    EmbedSys::default(),
-                );
-                Permissions::from_options(&parser as &dyn PermissionDescriptorParser, &options)
-                    .map_err(|error| error.to_string())
-            }
+            Self::None { prompt } => Ok(if *prompt {
+                Permissions::none_with_prompt()
+            } else {
+                Permissions::none_without_prompt()
+            }),
             Self::Configured(options) => {
-                if managed_read_roots.is_empty()
-                    || options
-                        .allow_read
-                        .as_ref()
-                        .is_none_or(|allow_read| allow_read.is_empty())
-                {
-                    let parser = deno_runtime::permissions::RuntimePermissionDescriptorParser::new(
-                        EmbedSys::default(),
-                    );
-                    return Permissions::from_options(
-                        &parser as &dyn PermissionDescriptorParser,
-                        options,
-                    )
-                    .map_err(|error| error.to_string());
-                }
-                let mut options = (**options).clone();
-                if let Some(allow_read) = options.allow_read.as_mut() {
-                    for root in managed_read_roots {
-                        let root = root.to_string_lossy().into_owned();
-                        if !allow_read.contains(&root) {
-                            allow_read.push(root);
-                        }
-                    }
-                }
                 let parser = deno_runtime::permissions::RuntimePermissionDescriptorParser::new(
                     EmbedSys::default(),
                 );
-                Permissions::from_options(&parser as &dyn PermissionDescriptorParser, &options)
+                Permissions::from_options(&parser as &dyn PermissionDescriptorParser, options)
                     .map_err(|error| error.to_string())
             }
         }
@@ -411,9 +362,18 @@ mod tests {
             allow_read: Some(Vec::new()),
             ..Default::default()
         })
-        .to_permissions_with_read_roots(&[])
+        .to_permissions()
         .unwrap();
 
         assert!(permissions.read.is_allow_all());
+    }
+
+    #[test]
+    fn configured_omitted_read_permission_does_not_allow_reads() {
+        let permissions = RuntimePermissionOptions::configured(PermissionsOptions::default())
+            .to_permissions()
+            .unwrap();
+
+        assert!(!permissions.read.is_allow_all());
     }
 }

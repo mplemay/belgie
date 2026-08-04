@@ -16,7 +16,7 @@ use deno_runtime::tokio_util::create_basic_runtime;
 use tokio::sync::{Notify, oneshot};
 
 use crate::{
-    embed::{init::spawn_v8_worker, runtime::content_type_header_overrides},
+    embed::{MainModuleSource, init::spawn_v8_worker, runtime::content_type_header_overrides},
     runtime::{module_loader, package_worker, process_context},
     types::{error::BindingError, runner::RunnerArguments, value::PyJsValue},
     utils::cancel_guard::Cancel,
@@ -317,8 +317,11 @@ impl DenoExecutionContext {
                         argv0: None,
                         js_runtime_options: bound.js_runtime_options().clone(),
                         runtime_worker_options: bound.worker_options().clone(),
-                        main_source: Some(bound.script().execution_content()),
-                        check_main_module_read: bound.script().filename().is_some(),
+                        main_source: if bound.script().filename().is_some() {
+                            MainModuleSource::PreloadedFile(bound.script().execution_content())
+                        } else {
+                            MainModuleSource::InMemory(bound.script().execution_content())
+                        },
                         header_overrides: content_type_header_overrides(
                             main_module.clone(),
                             bound.script().media_type(),
@@ -566,7 +569,7 @@ fn inline_module_path(bound: &BoundRuntime) -> PathBuf {
 fn create_js_runtime(bound: &BoundRuntime) -> ExecutionResult<JsRuntime> {
     let permissions = bound
         .worker_options()
-        .permissions_container(&[])
+        .permissions_container()
         .map_err(BindingError::runtime)?;
     Ok(JsRuntime::new(RuntimeOptions {
         module_loader: Some(Rc::new(module_loader::PythonModuleLoader::new(permissions))),
@@ -608,8 +611,7 @@ where
                         argv0: None,
                         js_runtime_options: Default::default(),
                         runtime_worker_options: Default::default(),
-                        main_source: Some("export {}".to_string()),
-                        check_main_module_read: false,
+                        main_source: MainModuleSource::InMemory("export {}".to_string()),
                         header_overrides: content_type_header_overrides(
                             main_module,
                             deno_ast::MediaType::TypeScript,

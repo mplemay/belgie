@@ -187,6 +187,31 @@ def test_static_absolute_json_import_requires_read_permission(tmp_path: Path):
     assert "static-secret-content" not in str(exc_info.value)
 
 
+def test_static_forbidden_source_is_rejected_before_graph_parsing(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    secret = tmp_path / "static-secret.js"
+    secret.write_text(
+        'export default "static-graph-secret-content" + ;',
+        encoding="utf-8",
+    )
+    source = f"import secret from {json.dumps(secret.as_uri())}; export default () => secret;"
+
+    with (
+        pytest.raises(BelgieModuleError, match="read|NotCapable") as exc_info,
+        Environment(path=project) as env,
+        Runtime(
+            env=env,
+            options=RuntimeOptions(
+                permissions=RuntimePermissions(allow_read=[str(project)]),
+            ),
+        ) as runtime,
+    ):
+        runtime(Script(source))()
+
+    assert "static-graph-secret-content" not in str(exc_info.value)
+
+
 def test_dynamic_absolute_file_import_requires_read_permission(tmp_path: Path):
     project = tmp_path / "project"
     project.mkdir()

@@ -273,16 +273,6 @@ impl PackageAwareModuleLoader {
         }
     }
 
-    fn check_module_permission(
-        &self,
-        module_specifier: &ModuleSpecifier,
-    ) -> Result<(), ModuleLoaderError> {
-        if let Ok(path) = module_specifier.to_file_path() {
-            check_read_permission(&self.permissions, Cow::Owned(path), Some("module load"))?;
-        }
-        Ok(())
-    }
-
     fn resolve_referrer(&self, referrer: &str) -> Result<ModuleSpecifier, ModuleLoaderError> {
         if deno_path_util::specifier_has_uri_scheme(referrer) {
             return ModuleSpecifier::parse(referrer).map_err(JsErrorBox::from_err);
@@ -496,22 +486,21 @@ impl PackageAwareModuleLoader {
             .lock()
             .expect("module graph lock should not be poisoned")
             .clone();
+        let resolved_specifier = self
+            .state
+            .module_read_checker
+            .ensure_specifier(&self.permissions, resolved_specifier.as_ref())?;
         let loaded = self
             .state
             .module_loader
             .load(
                 &graph,
-                resolved_specifier.as_ref(),
+                &resolved_specifier,
                 maybe_referrer_url.as_ref(),
                 &deno_requested,
             )
             .await
             .map_err(JsErrorBox::from_err)?;
-        if let LoadedModuleOrAsset::Module(loaded_module) = &loaded {
-            let loaded_specifier = ModuleSpecifier::parse(loaded_module.specifier.as_str())
-                .map_err(JsErrorBox::from_err)?;
-            self.check_module_permission(&loaded_specifier)?;
-        }
         match loaded {
             LoadedModuleOrAsset::Module(loaded_module) => loaded_module_to_module_source(
                 loaded_module,

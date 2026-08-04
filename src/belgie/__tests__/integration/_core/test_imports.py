@@ -101,7 +101,7 @@ export default async function run() {
     assert list(tmp_path.iterdir()) == []
 
 
-def test_ephemeral_managed_npm_import_works_with_workspace_only_read_permission(
+def test_ephemeral_managed_npm_import_works_without_read_permission(
     tmp_path,
     monkeypatch,
 ):
@@ -118,8 +118,40 @@ export default function run() {
         with Runtime(
             env=env,
             options=RuntimeOptions(
-                permissions=RuntimePermissions(allow_read=[str(tmp_path)]),
+                permissions=RuntimePermissions(),
             ),
+        ) as runtime:
+            assert runtime(Script(source))() is True
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_ephemeral_managed_npm_import_does_not_grant_direct_package_reads(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    source = """
+import isNumber from "is_number";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
+export default async function run() {
+  const packagePath = require.resolve("is-number");
+  try {
+    await Deno.readTextFile(packagePath);
+  } catch (error) {
+    return isNumber(42) && error instanceof Deno.errors.NotCapable;
+  }
+  return false;
+}
+"""
+    with Environment({"is_number": "npm:is-number@7.0.0"}) as env:
+        env.install()
+        with Runtime(
+            env=env,
+            options=RuntimeOptions(permissions=RuntimePermissions.none()),
         ) as runtime:
             assert runtime(Script(source))() is True
 
@@ -140,7 +172,10 @@ export default function run() {
 """
     with Environment({"is_number": "npm:is-number@7.0.0"}) as env:
         env.install()
-        with Runtime(env=env) as runtime:
+        with Runtime(
+            env=env,
+            options=RuntimeOptions(permissions=RuntimePermissions.none()),
+        ) as runtime:
             assert runtime(Script(source))() is True
 
     assert list(tmp_path.iterdir()) == []
@@ -163,7 +198,12 @@ self.close();
 
     with Environment({"is_number": "npm:is-number@7.0.0"}) as env:
         env.install()
-        with Runtime(env=env) as runtime:
+        with Runtime(
+            env=env,
+            options=RuntimeOptions(
+                permissions=RuntimePermissions(allow_read=[str(tmp_path)]),
+            ),
+        ) as runtime:
             assert runtime(Script.from_file(main))() is True
 
     assert sorted(path.name for path in tmp_path.iterdir()) == ["main.js", "worker.js"]
