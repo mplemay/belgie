@@ -46,6 +46,9 @@ mod tests {
         let message =
             with_minimum_dependency_age_hint(format!("failed: {MINIMUM_DEPENDENCY_AGE_MARKER}"));
         let again = with_minimum_dependency_age_hint(message.clone());
-        assert_eq!(again.matches(MINIMUM_DEPENDENCY_AGE_POLICY_PHRASE).count(), 1);
+        assert_eq!(
+            again.matches(MINIMUM_DEPENDENCY_AGE_POLICY_PHRASE).count(),
+            1
+        );
     }
 }
