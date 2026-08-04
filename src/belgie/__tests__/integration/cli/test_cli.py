@@ -20,6 +20,9 @@ def test_pyproject_dependencies_lock_install_and_update(tmp_path: Path) -> None:
 [project]
 name = "demo"
 
+[tool.belgie]
+minimum-dependency-age = "P7D"
+
 [tool.belgie.dependencies]
 "is-number" = "npm:is-number@7.0.0"
 """,
@@ -28,7 +31,7 @@ name = "demo"
 
     lock_result = lock_project(load_project(tmp_path))
     install_result = install_project(load_project(tmp_path), frozen=True)
-    update_result = update_project(load_project(tmp_path), ["is-number"], latest=False)
+    update_result = update_project(load_project(tmp_path), ["is-number"], latest=False, minimum_dependency_age="0")
 
     assert lock_result.dependencies == 1
     assert install_result.dependencies == 1

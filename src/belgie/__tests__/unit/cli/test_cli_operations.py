@@ -4,13 +4,20 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Self
+from typing import Any, ClassVar, Self
 
 import pytest
 import rtoml
 
 from belgie.cli import _operations
-from belgie.cli._operations import add_dependency, run_command, update_project
+from belgie.cli._operations import (
+    add_dependency,
+    create_environment,
+    install_project,
+    lock_project,
+    run_command,
+    update_project,
+)
 from belgie.cli._project import ProjectError, load_project
 
 
@@ -34,16 +41,21 @@ class FakeUpdateResult:
 
 
 class FakeEnvironment:
+    last: ClassVar[FakeEnvironment | None] = None
+
     def __init__(
         self,
         dependencies: dict[str, str],
         *,
         path: Path,
         lockfile: Path | None = None,
+        options: object | None = None,
     ) -> None:
         self.dependencies = dependencies
         self.path = path
         self.lockfile = lockfile
+        self.options = options
+        type(self).last = self
 
     def __enter__(self) -> Self:
         return self
@@ -94,10 +106,20 @@ def fake_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(_operations, "Environment", FakeEnvironment)
 
 
-def write_pyproject(root: Path, dependencies: dict[str, str] | None = None) -> None:
+def write_pyproject(
+    root: Path,
+    dependencies: dict[str, str] | None = None,
+    *,
+    minimum_dependency_age: str | None = None,
+) -> None:
     document: dict[str, Any] = {"project": {"name": "demo"}}
+    belgie: dict[str, Any] = {}
+    if minimum_dependency_age is not None:
+        belgie["minimum-dependency-age"] = minimum_dependency_age
     if dependencies is not None:
-        document["tool"] = {"belgie": {"dependencies": dependencies}}
+        belgie["dependencies"] = dependencies
+    if belgie:
+        document["tool"] = {"belgie": belgie}
     (root / "pyproject.toml").write_text(rtoml.dumps(document, pretty=True), encoding="utf-8")
 
 
@@ -110,6 +132,76 @@ def test_add_dependency_writes_pyproject_and_commits_lockfile(tmp_path: Path) ->
     assert document["tool"]["belgie"]["dependencies"] == {"std_path": "jsr:@std/path@^1"}
     assert result.dependencies == 1
     assert (tmp_path / "deno.lock").read_text(encoding="utf-8") == "locked"
+
+
+def test_create_environment_uses_project_minimum_dependency_age(tmp_path: Path) -> None:
+    write_pyproject(
+        tmp_path,
+        {"camelcase": "8.0.0"},
+        minimum_dependency_age="P7D",
+    )
+
+    with create_environment(load_project(tmp_path), frozen=False):
+        pass
+
+    fake_environment = FakeEnvironment.last
+    assert fake_environment is not None
+    assert fake_environment.options is not None
+    assert 'minimum_dependency_age=Some("P7D")' in repr(fake_environment.options)
+
+
+@pytest.mark.parametrize(
+    ("operation", "kwargs"),
+    [
+        pytest.param(
+            lock_project,
+            {},
+            id="lock",
+        ),
+        pytest.param(
+            install_project,
+            {"frozen": False},
+            id="install",
+        ),
+        pytest.param(
+            add_dependency,
+            {"alias": "std_path", "specifier": "jsr:@std/path@^1"},
+            id="add",
+        ),
+        pytest.param(
+            update_project,
+            {"packages": ["camelcase"], "latest": False},
+            id="update",
+        ),
+    ],
+)
+def test_resolution_operations_flag_overrides_project_minimum_dependency_age(
+    tmp_path: Path,
+    operation: Callable[..., object],
+    kwargs: dict[str, object],
+) -> None:
+    write_pyproject(
+        tmp_path,
+        {"camelcase": "8.0.0"},
+        minimum_dependency_age="P7D",
+    )
+
+    operation(load_project(tmp_path), minimum_dependency_age="0", **kwargs)
+
+    assert FakeEnvironment.last is not None
+    assert FakeEnvironment.last.options is not None
+    assert 'minimum_dependency_age=Some("0")' in repr(FakeEnvironment.last.options)
+
+
+def test_create_environment_reports_invalid_minimum_dependency_age(tmp_path: Path) -> None:
+    write_pyproject(
+        tmp_path,
+        {"camelcase": "8.0.0"},
+        minimum_dependency_age="7 days",
+    )
+
+    with pytest.raises(ProjectError, match="minimum_dependency_age"):
+        create_environment(load_project(tmp_path), frozen=False)
 
 
 @pytest.mark.parametrize(
@@ -169,6 +261,56 @@ def test_run_command_applies_module_precedence(
     run_command(load_project(tmp_path), ["vite", "build"], frozen=False, module=override)
 
     assert received == [expected]
+
+
+def test_run_command_flag_overrides_project_minimum_dependency_age(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    write_pyproject(
+        tmp_path,
+        {"vite": "npm:vite@8"},
+        minimum_dependency_age="P7D",
+    )
+
+    class FakeCommand:
+        def __init__(self, name: str, *, cwd: str, module: bool) -> None:
+            self.name = name
+            self.cwd = cwd
+            self.module = module
+
+    class FakeRuntime:
+        def __init__(self, *, env: FakeEnvironment) -> None:
+            self.env = env
+
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            traceback: TracebackType | None,
+        ) -> bool | None:
+            return None
+
+        def __call__(self, command: FakeCommand) -> Callable[..., None]:
+            assert command.name == "vite"
+            return lambda *_args: None
+
+    monkeypatch.setattr(_operations, "Command", FakeCommand)
+    monkeypatch.setattr(_operations, "Runtime", FakeRuntime)
+
+    run_command(
+        load_project(tmp_path),
+        ["vite", "build"],
+        frozen=False,
+        minimum_dependency_age="0",
+    )
+
+    assert FakeEnvironment.last is not None
+    assert FakeEnvironment.last.options is not None
+    assert 'minimum_dependency_age=Some("0")' in repr(FakeEnvironment.last.options)
 
 
 def test_add_dependency_leaves_lockfile_unchanged_when_pyproject_write_fails(

@@ -107,6 +107,10 @@ dev = [
     { name = "uvloop", marker = "sys_platform != 'win32'", specifier = ">=0.22.1" },
     { name = "zizmor", specifier = ">=1.25.2" },
 ]
+docs = [
+    { name = "mkdocs", specifier = ">=1.6.1" },
+    { name = "mkdocs-material", specifier = ">=9.7.0" },
+]
 
 [[package]]
 name = "certifi"

@@ -106,6 +106,28 @@ def test_environment_options_accept_supported_deno_options() -> None:
     assert "minimum_dependency_age_minutes=Some(0)" in repr(options)
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("120", id="minutes"),
+        pytest.param("2025-01-01", id="date"),
+        pytest.param("2025-01-01T00:00:00Z", id="timestamp"),
+        pytest.param("P7D", id="iso-duration"),
+        pytest.param("0", id="disabled"),
+    ],
+)
+def test_environment_options_accept_minimum_dependency_age(value: str) -> None:
+    options = EnvironmentOptions(minimum_dependency_age=value)
+
+    assert isinstance(options, EnvironmentOptions)
+    assert f'minimum_dependency_age=Some("{value}")' in repr(options)
+
+
+def test_environment_options_rejects_conflicting_minimum_dependency_age_options() -> None:
+    with pytest.raises(ValueError, match="cannot be used together"):
+        EnvironmentOptions(minimum_dependency_age="P7D", minimum_dependency_age_minutes=120)
+
+
 def test_environment_options_reject_invalid_environment_options() -> None:
     with pytest.raises(ValueError, match="cache_setting"):
         EnvironmentOptions(cache_setting=cast("Any", "fresh"))
@@ -121,6 +143,8 @@ def test_environment_options_reject_invalid_environment_options() -> None:
         EnvironmentOptions(npm_caching=cast("Any", "none"))
     with pytest.raises(ValueError, match="minimum_dependency_age_minutes"):
         EnvironmentOptions(minimum_dependency_age_minutes=-1)
+    with pytest.raises(ValueError, match="minimum_dependency_age"):
+        EnvironmentOptions(minimum_dependency_age="7 days")
 
 
 def test_runtime_permissions_accept_permission_constructors() -> None:
