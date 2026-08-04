@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -47,6 +48,32 @@ def test_parse_belgie_tool_config_reads_module_mode() -> None:
 def test_parse_belgie_tool_config_rejects_invalid_module_mode() -> None:
     with pytest.raises(PyprojectError, match="must be a boolean"):
         parse_belgie_tool_config({"tool": {"belgie": {"module": "true"}}})
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param(date(2025, 1, 1), "2025-01-01", id="date"),
+        pytest.param(
+            datetime(2025, 1, 1, tzinfo=timezone.utc),
+            "2025-01-01T00:00:00Z",
+            id="aware-datetime-utc",
+        ),
+        pytest.param(datetime(2025, 1, 1), "2025-01-01T00:00:00Z", id="naive-datetime"),
+        pytest.param(
+            datetime(2025, 1, 1, tzinfo=timezone(timedelta(hours=-5))),
+            "2025-01-01T00:00:00-05:00",
+            id="aware-datetime-offset",
+        ),
+    ],
+)
+def test_parse_belgie_tool_config_reads_native_minimum_dependency_age(
+    value: date | datetime,
+    expected: str,
+) -> None:
+    config = parse_belgie_tool_config({"tool": {"belgie": {"minimum-dependency-age": value}}})
+
+    assert config.minimum_dependency_age == expected
 
 
 @pytest.mark.parametrize(

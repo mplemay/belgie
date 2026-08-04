@@ -103,6 +103,10 @@ module = true
     [
         pytest.param('"P7D"', "P7D", id="iso-duration"),
         pytest.param('"2025-01-01T00:00:00Z"', "2025-01-01T00:00:00Z", id="timestamp"),
+        pytest.param('"2025-01-01"', "2025-01-01", id="date-string"),
+        pytest.param("2025-01-01", "2025-01-01", id="native-date"),
+        pytest.param("2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", id="native-timestamp"),
+        pytest.param("2025-01-01T00:00:00", "2025-01-01T00:00:00Z", id="native-local-datetime"),
         pytest.param("120", "120", id="minutes"),
         pytest.param("false", "0", id="disabled"),
     ],
