@@ -67,8 +67,13 @@ uv run belgie run tsc --noEmit
 BELGIE_DEV=0 uv run fastapi run --port 8000
 ```
 
-Belgie runs Vite once as the production extension is registered. The build writes the SPA to `dist/client/index.html`
-and the self-contained widget to `dist/widgets/get-time/index.html`.
+Belgie runs Vite once as the production extension is registered. Shared mode writes the SPA to `dist/client/index.html`,
+the widget HTML to `dist/widgets/get-time/index.html`, and reusable JavaScript/CSS assets under the normal Vite client
+asset directory. FastAPI serves `dist/client` at `/`, which makes those emitted assets available to the widget host.
+If the app is deployed below the domain root, set Vite's `base` to that public path; shared widget HTML uses the same
+base for its asset URLs.
+
+Use the default inline mode when a widget must not depend on a separately hosted asset directory.
 
 FastAPI now serves the page at `http://127.0.0.1:8000/` and the MCP endpoint at
 `http://127.0.0.1:8000/mcp/`. Normal FastAPI and mounted routes take priority over the low-priority frontend fallback.
