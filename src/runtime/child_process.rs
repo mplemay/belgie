@@ -6,7 +6,7 @@ use deno_core::ModuleSpecifier;
 use deno_lib::worker::{LibMainWorker, LibWorkerFactoryRoots};
 
 use crate::embed::sys::EmbedSys;
-use crate::embed::{EmbedContext, EmbedContextOptions, init::spawn_v8_worker};
+use crate::embed::{EmbedContext, EmbedContextOptions, MainModuleSource, init::spawn_v8_worker};
 use crate::options::{JsRuntimeOptions, RuntimeWorkerOptions};
 use crate::runtime::package_worker::{self, BoundPackageWorkerOptions};
 use crate::types::error::BindingError;
@@ -82,7 +82,7 @@ async fn run_async(module: &Path, argv: Vec<String>) -> Result<i32, BindingError
                 .map(|path| path.to_string_lossy().into_owned()),
             js_runtime_options: JsRuntimeOptions::default(),
             runtime_worker_options: RuntimeWorkerOptions::default(),
-            main_source: None,
+            main_source: MainModuleSource::OnDisk,
             header_overrides: crate::embed::js_content_type_header_overrides(main_module),
             node_ipc_init,
         },

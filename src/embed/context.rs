@@ -51,6 +51,7 @@ use tokio::sync::Mutex;
 
 use crate::embed::init::ensure_initialized;
 use crate::embed::memory;
+use crate::embed::read_permissions::ModuleReadChecker;
 use crate::embed::sys::EmbedSys;
 use crate::options::RuntimeWorkerOptions;
 
@@ -202,6 +203,7 @@ pub(crate) struct EmbedContext {
     resolver_factory: Arc<ResolverFactory<EmbedSys>>,
     npm_installer_factory: Rc<NpmInstallerFactory<EmbedHttpClient, LogReporter, EmbedSys>>,
     memory_files: deno_resolver::loader::MemoryFilesRc,
+    module_read_checker: ModuleReadChecker,
     graph_loader: Mutex<DenoGraphLoader<NullBlobStore, EmbedSys, EmbedHttpClient>>,
     install_graph_roots: Vec<ModuleSpecifier>,
     allow_json_imports: AllowJsonImports,
@@ -383,6 +385,7 @@ impl EmbedContext {
             options.unsafely_ignore_certificate_errors.clone(),
         )?);
         let memory_files = deno_maybe_sync::new_rc(MemoryFiles::default());
+        let module_read_checker = ModuleReadChecker::new(memory_files.clone(), &resolver_factory)?;
         let global_http_cache = resolver_factory
             .workspace_factory()
             .global_http_cache()
@@ -441,6 +444,7 @@ impl EmbedContext {
             resolver_factory,
             npm_installer_factory,
             memory_files,
+            module_read_checker,
             graph_loader: Mutex::new(graph_loader),
             install_graph_roots: options.install_graph_roots,
             allow_json_imports: options.allow_json_imports,
@@ -466,6 +470,10 @@ impl EmbedContext {
 
     pub fn memory_files(&self) -> &deno_resolver::loader::MemoryFilesRc {
         &self.memory_files
+    }
+
+    pub(crate) fn module_read_checker(&self) -> &ModuleReadChecker {
+        &self.module_read_checker
     }
 
     pub fn graph_loader(
