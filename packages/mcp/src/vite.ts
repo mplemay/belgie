@@ -106,25 +106,54 @@ function renderWidgetBundle(name: string, bundle: Record<string, BuildArtifact>)
   return renderWidgetHtmlDocument({ inlineScript: entry.code, inlineStyles: styles });
 }
 
+function toRootRelativeInput(entry: string, root: string): string {
+  if (entry.startsWith(VIRTUAL_PREFIX) || entry.startsWith("\0")) {
+    return entry;
+  }
+  const absolute = isAbsolute(entry) ? entry : resolve(root, entry);
+  const rel = relative(root, absolute);
+  if (rel !== "" && !rel.startsWith("..") && !isAbsolute(rel)) {
+    return normalizePath(rel);
+  }
+  return normalizePath(entry);
+}
+
+function inputEntryKey(entry: string, root: string, used: Set<string>): string {
+  const base = basename(entry, extname(entry));
+  if (!used.has(base)) {
+    used.add(base);
+    return base;
+  }
+  const absolute = isAbsolute(entry) ? entry : resolve(root, entry);
+  const rel = normalizePath(relative(root, absolute));
+  const withoutExt = rel.endsWith(extname(rel)) ? rel.slice(0, -extname(rel).length) : rel;
+  const key = withoutExt.replaceAll("/", "-").replace(/^\.+/, "") || base;
+  if (used.has(key)) {
+    throw new Error(`belgie: duplicate shared Vite input name "${key}" derived from ${entry}`);
+  }
+  used.add(key);
+  return key;
+}
+
 function normalizeInput(input: RollupInput | undefined, root: string): Record<string, string> {
   if (input === undefined) {
     const indexPath = resolve(root, "index.html");
-    return existsSync(indexPath) ? { index: indexPath } : {};
+    return existsSync(indexPath) ? { index: "index.html" } : {};
   }
   if (typeof input === "string") {
-    return { [basename(input, extname(input))]: input };
+    const used = new Set<string>();
+    return { [inputEntryKey(input, root, used)]: toRootRelativeInput(input, root) };
   }
   if (Array.isArray(input)) {
-    return Object.fromEntries(input.map((entry) => [basename(entry, extname(entry)), entry]));
+    const used = new Set<string>();
+    return Object.fromEntries(
+      input.map((entry) => [inputEntryKey(entry, root, used), toRootRelativeInput(entry, root)]),
+    );
   }
-  return { ...input };
+  return Object.fromEntries(Object.entries(input).map(([name, entry]) => [name, toRootRelativeInput(entry, root)]));
 }
 
-function sharedInput(
-  input: RollupInput | undefined,
-  widgets: WidgetCandidate[],
-  root: string,
-): Record<string, string> {
+function sharedInput(input: RollupInput | undefined, widgets: WidgetCandidate[], root: string): Record<string, string> {
   const entries = normalizeInput(input, root);
   for (const widget of widgets) {
     if (entries[widget.name] !== undefined) {
@@ -140,16 +169,38 @@ function assetUrl(fileName: string, base: string): string {
   return `${normalizedBase}${normalizePath(fileName)}`;
 }
 
-function renderSharedWidgetBundle(
-  name: string,
-  bundle: Record<string, BuildArtifact>,
-  base: string,
-): string {
+function collectImportedCss(entry: BuildChunk, chunksByFileName: Map<string, BuildChunk>): string[] {
+  const seenChunks = new Set<string>();
+  const cssNames: string[] = [];
+  const seenCss = new Set<string>();
+
+  const visit = (chunk: BuildChunk) => {
+    if (seenChunks.has(chunk.fileName)) {
+      return;
+    }
+    seenChunks.add(chunk.fileName);
+    for (const fileName of chunk.imports) {
+      const importee = chunksByFileName.get(fileName);
+      if (importee !== undefined) {
+        visit(importee);
+      }
+    }
+    for (const cssName of chunk.viteMetadata?.importedCss ?? []) {
+      if (!seenCss.has(cssName)) {
+        seenCss.add(cssName);
+        cssNames.push(cssName);
+      }
+    }
+  };
+
+  visit(entry);
+  return cssNames;
+}
+
+function renderSharedWidgetBundle(name: string, bundle: Record<string, BuildArtifact>, base: string): string {
   const chunks = Object.values(bundle).filter((artifact): artifact is BuildChunk => artifact.type === "chunk");
   const entryId = `${VIRTUAL_MODULE_PREFIX}${name}`;
-  const entries = chunks.filter(
-    (chunk) => chunk.isEntry && (chunk.facadeModuleId === entryId || chunk.name === name),
-  );
+  const entries = chunks.filter((chunk) => chunk.isEntry && (chunk.facadeModuleId === entryId || chunk.name === name));
   if (entries.length !== 1) {
     throw new Error(`belgie: expected one shared entry chunk for widget "${name}", received ${entries.length}`);
   }
@@ -157,7 +208,8 @@ function renderSharedWidgetBundle(
   const entry = entries[0];
   const assets = Object.values(bundle).filter((artifact): artifact is BuildAsset => artifact.type === "asset");
   const assetsByName = new Map(assets.map((asset) => [asset.fileName, asset]));
-  const importedCss = [...(entry.viteMetadata?.importedCss ?? [])];
+  const chunksByFileName = new Map(chunks.map((chunk) => [chunk.fileName, chunk]));
+  const importedCss = collectImportedCss(entry, chunksByFileName);
   const cssNames =
     importedCss.length > 0
       ? importedCss

@@ -143,7 +143,7 @@ describe("Vite configuration and virtual modules", () => {
       weather: "/_belgie/widget/weather",
     };
     for (const [input, hostEntries] of [
-      [undefined, { index: resolve(root, "index.html") }],
+      [undefined, { index: "index.html" }],
       ["custom.ts", { custom: "custom.ts" }],
       [["first.ts", "second.ts"], { first: "first.ts", second: "second.ts" }],
       [{ app: "app.ts" }, { app: "app.ts" }],
@@ -157,6 +157,58 @@ describe("Vite configuration and virtual modules", () => {
       assert.equal(typeof configured, "object");
       assert.deepEqual(configured, { ...hostEntries, ...expected });
     }
+  });
+
+  it("preserves array inputs that share a basename", () => {
+    const root = temporaryProject();
+    writeWidget(root, "weather", "export default function Widget() { return null }");
+    const plugin = belgie({ bundle: "shared" });
+    const result = configHook(plugin)(
+      { build: { rolldownOptions: { input: ["admin/index.html", "app/index.html"] } }, root },
+      { command: "build", mode: "test" },
+    );
+
+    assert.deepEqual(result?.environments?.client?.build?.rolldownOptions?.input, {
+      index: "admin/index.html",
+      "app-index": "app/index.html",
+      weather: "/_belgie/widget/weather",
+    });
+  });
+
+  it("rejects array inputs that still collide after path-based keys", () => {
+    const root = temporaryProject();
+    writeWidget(root, "weather", "export default function Widget() { return null }");
+    const plugin = belgie({ bundle: "shared" });
+    assert.throws(
+      () =>
+        configHook(plugin)(
+          {
+            build: { rolldownOptions: { input: ["index.html", "admin/index.html", "admin-index.ts"] } },
+            root,
+          },
+          { command: "build", mode: "test" },
+        ),
+      /duplicate shared Vite input name "admin-index"/u,
+    );
+  });
+
+  it("rewrites absolute host inputs under the project root to relative paths", () => {
+    const root = temporaryProject();
+    writeWidget(root, "weather", "export default function Widget() { return null }");
+    const plugin = belgie({ bundle: "shared" });
+    const result = configHook(plugin)(
+      {
+        build: { rolldownOptions: { input: { app: resolve(root, "src/app.ts"), virtual: "/_belgie/widget/host" } } },
+        root,
+      },
+      { command: "build", mode: "test" },
+    );
+
+    assert.deepEqual(result?.environments?.client?.build?.rolldownOptions?.input, {
+      app: "src/app.ts",
+      virtual: "/_belgie/widget/host",
+      weather: "/_belgie/widget/weather",
+    });
   });
 
   it("uses client environment input before other shared input forms", () => {
@@ -329,16 +381,20 @@ describe("production bundle rendering", () => {
         imports: ["assets/shared.js"],
         dynamicImports: ["assets/lazy.js"],
         name: "weather",
-        viteMetadata: { importedCss: new Set(["assets/shared.css"]) },
       }),
       "assets/clock.js": chunk({
         facadeModuleId: "\0belgie:widget:clock",
         fileName: "assets/clock.js",
         name: "clock",
+        viteMetadata: { importedCss: new Set(["assets/clock.css"]) },
+      }),
+      "assets/shared.js": chunk({
+        fileName: "assets/shared.js",
+        isEntry: false,
         viteMetadata: { importedCss: new Set(["assets/shared.css"]) },
       }),
-      "assets/shared.js": chunk({ fileName: "assets/shared.js", isEntry: false }),
       "assets/shared.css": { fileName: "assets/shared.css", source: "body{}", type: "asset" },
+      "assets/clock.css": { fileName: "assets/clock.css", source: ".clock{}", type: "asset" },
       "assets/icon.svg": { fileName: "assets/icon.svg", source: "<svg />", type: "asset" },
     };
     writeBundleHook(plugin).call(
@@ -351,15 +407,75 @@ describe("production bundle rendering", () => {
     const clock = readFileSync(resolve(root, "dist/widgets/clock/index.html"), "utf8");
     assert.match(weather, /\/app\/assets\/weather\.js/u);
     assert.match(weather, /\/app\/assets\/shared\.css/u);
+    assert.doesNotMatch(weather, /\/app\/assets\/clock\.css/u);
     assert.match(clock, /\/app\/assets\/clock\.js/u);
+    assert.match(clock, /\/app\/assets\/clock\.css/u);
     assert.doesNotMatch(weather, /inlineScript/u);
     assert.deepEqual(Object.keys(bundle), [
       "assets/weather.js",
       "assets/clock.js",
       "assets/shared.js",
       "assets/shared.css",
+      "assets/clock.css",
       "assets/icon.svg",
     ]);
+  });
+
+  it("falls back to sorted CSS assets when shared chunks lack Vite metadata", () => {
+    const root = temporaryProject();
+    writeWidget(root, "weather", "export default function Widget() { return null }");
+    const plugin = belgie({ bundle: "shared" });
+    configHook(plugin)({ root }, { command: "build", mode: "test" });
+    plugin.configResolved?.({ base: "/", root });
+
+    writeBundleHook(plugin).call(
+      { environment: { config: { consumer: "client" } } } as never,
+      {} as never,
+      {
+        "assets/weather.js": chunk({
+          facadeModuleId: "\0belgie:widget:weather",
+          fileName: "assets/weather.js",
+          name: "weather",
+        }),
+        "assets/b.css": { fileName: "assets/b.css", source: ".b{}", type: "asset" },
+        "assets/a.css": { fileName: "assets/a.css", source: ".a{}", type: "asset" },
+      } as never,
+    );
+
+    const weather = readFileSync(resolve(root, "dist/widgets/weather/index.html"), "utf8");
+    assert.match(weather, /assets\/a\.css/u);
+    assert.match(weather, /assets\/b\.css/u);
+  });
+
+  it("collects shared CSS across circular chunk imports without looping forever", () => {
+    const root = temporaryProject();
+    writeWidget(root, "weather", "export default function Widget() { return null }");
+    const plugin = belgie({ bundle: "shared" });
+    configHook(plugin)({ root }, { command: "build", mode: "test" });
+    plugin.configResolved?.({ base: "/", root });
+
+    writeBundleHook(plugin).call(
+      { environment: { config: { consumer: "client" } } } as never,
+      {} as never,
+      {
+        "assets/weather.js": chunk({
+          facadeModuleId: "\0belgie:widget:weather",
+          fileName: "assets/weather.js",
+          imports: ["assets/shared.js"],
+          name: "weather",
+        }),
+        "assets/shared.js": chunk({
+          fileName: "assets/shared.js",
+          imports: ["assets/weather.js"],
+          isEntry: false,
+          viteMetadata: { importedCss: new Set(["assets/shared.css"]) },
+        }),
+        "assets/shared.css": { fileName: "assets/shared.css", source: "body{}", type: "asset" },
+      } as never,
+    );
+
+    const weather = readFileSync(resolve(root, "dist/widgets/weather/index.html"), "utf8");
+    assert.match(weather, /assets\/shared\.css/u);
   });
 
   it.each([
