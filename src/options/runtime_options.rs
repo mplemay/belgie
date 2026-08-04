@@ -1,8 +1,11 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use deno_lib::worker::create_isolate_create_params;
 use deno_runtime::WorkerLogLevel;
-use deno_runtime::deno_permissions::{PermissionDescriptorParser, Permissions, PermissionsOptions};
+use deno_runtime::deno_permissions::{
+    PermissionDescriptorParser, Permissions, PermissionsContainer, PermissionsOptions,
+};
 
 use crate::embed::sys::EmbedSys;
 use crate::environment::SharedEnvironment;
@@ -146,8 +149,15 @@ impl RuntimeWorkerOptions {
             || self.trace_ops.is_some()
     }
 
-    pub(crate) fn permissions(&self) -> &RuntimePermissionOptions {
-        &self.permissions
+    pub(crate) fn permissions_container(&self) -> Result<PermissionsContainer, String> {
+        Ok(PermissionsContainer::new(
+            Arc::new(
+                deno_runtime::permissions::RuntimePermissionDescriptorParser::new(
+                    EmbedSys::default(),
+                ),
+            ),
+            self.permissions.to_permissions()?,
+        ))
     }
 
     pub(crate) fn seed(&self) -> Option<u64> {
@@ -191,13 +201,11 @@ impl RuntimePermissionOptions {
     pub(crate) fn to_permissions(&self) -> Result<Permissions, String> {
         match self {
             Self::AllowAll => Ok(Permissions::allow_all()),
-            Self::None { prompt } => {
-                if *prompt {
-                    Ok(Permissions::none_with_prompt())
-                } else {
-                    Ok(Permissions::none_without_prompt())
-                }
-            }
+            Self::None { prompt } => Ok(if *prompt {
+                Permissions::none_with_prompt()
+            } else {
+                Permissions::none_without_prompt()
+            }),
             Self::Configured(options) => {
                 let parser = deno_runtime::permissions::RuntimePermissionDescriptorParser::new(
                     EmbedSys::default(),
@@ -358,5 +366,14 @@ mod tests {
         .unwrap();
 
         assert!(permissions.read.is_allow_all());
+    }
+
+    #[test]
+    fn configured_omitted_read_permission_does_not_allow_reads() {
+        let permissions = RuntimePermissionOptions::configured(PermissionsOptions::default())
+            .to_permissions()
+            .unwrap();
+
+        assert!(!permissions.read.is_allow_all());
     }
 }

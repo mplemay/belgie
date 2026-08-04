@@ -12,7 +12,7 @@ uv run main
 
 ## What's happening
 
-Sync usage — enter the environment, install, then run the script:
+Sync usage -- enter the environment, install, then run the script:
 
 ```python
 with Environment({"std_path": "jsr:@std/path@^1"}) as env:
@@ -21,7 +21,7 @@ with Environment({"std_path": "jsr:@std/path@^1"}) as env:
         result = runtime(Script(SOURCE))()
 ```
 
-Async with a persistent cwd — `path=Path.cwd()` keeps the working directory across the environment lifetime:
+Async with a persistent cwd -- `path=Path.cwd()` keeps the working directory across the environment lifetime:
 
 ```python
 async with Environment({"std_path": "jsr:@std/path@^1"}, path=Path.cwd()) as env:

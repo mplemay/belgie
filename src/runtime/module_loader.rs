@@ -18,6 +18,7 @@ use deno_resolver::graph::{
 use deno_resolver::loader::AllowJsonImports;
 use deno_resolver::loader::LoadedModule;
 use deno_resolver::loader::LoadedModuleOrAsset;
+use deno_runtime::deno_permissions::{OpenAccessKind, PermissionsContainer};
 use deno_semver::npm::NpmPackageReqReference;
 use futures::FutureExt;
 use node_resolver::NodeResolutionKind;
@@ -27,8 +28,16 @@ use url::Url;
 use crate::embed::PackageRuntimeState;
 use crate::embed::insert_memory_file;
 
-#[derive(Debug, Default)]
-pub(crate) struct PythonModuleLoader;
+#[derive(Debug)]
+pub(crate) struct PythonModuleLoader {
+    permissions: PermissionsContainer,
+}
+
+impl PythonModuleLoader {
+    pub(crate) fn new(permissions: PermissionsContainer) -> Self {
+        Self { permissions }
+    }
+}
 
 impl ModuleLoader for PythonModuleLoader {
     fn resolve(
@@ -49,6 +58,7 @@ impl ModuleLoader for PythonModuleLoader {
         ModuleLoadResponse::Sync(load_module_source(
             module_specifier,
             options.requested_module_type,
+            &self.permissions,
         ))
     }
 }
@@ -56,8 +66,15 @@ impl ModuleLoader for PythonModuleLoader {
 fn load_module_source(
     module_specifier: &ModuleSpecifier,
     requested_module_type: RequestedModuleType,
+    permissions: &PermissionsContainer,
 ) -> Result<ModuleSource, ModuleLoaderError> {
-    load_module_source_with_media_type(module_specifier, requested_module_type, None, false)
+    load_module_source_with_media_type(
+        module_specifier,
+        requested_module_type,
+        None,
+        false,
+        permissions,
+    )
 }
 
 fn load_module_source_with_media_type(
@@ -65,16 +82,22 @@ fn load_module_source_with_media_type(
     requested_module_type: RequestedModuleType,
     media_type_override: Option<MediaType>,
     allow_json_without_attribute: bool,
+    permissions: &PermissionsContainer,
 ) -> Result<ModuleSource, ModuleLoaderError> {
     let path = module_specifier
         .to_file_path()
         .map_err(|_| JsErrorBox::generic("Only file:// URLs are supported."))?;
+    let checked_path = check_read_permission(
+        permissions,
+        Cow::Borrowed(path.as_path()),
+        Some("module load"),
+    )?;
 
     if matches!(
         requested_module_type,
         RequestedModuleType::Bytes | RequestedModuleType::Text | RequestedModuleType::Other(_)
     ) {
-        let bytes = read_bytes(&path, module_specifier)?;
+        let bytes = read_bytes(checked_path.as_ref(), module_specifier)?;
         return Ok(ModuleSource::new(
             match requested_module_type {
                 RequestedModuleType::Bytes => ModuleType::Bytes,
@@ -94,7 +117,10 @@ fn load_module_source_with_media_type(
         if allow_json_without_attribute {
             return Ok(ModuleSource::new(
                 ModuleType::JavaScript,
-                json_module_source_code(module_specifier, &read_bytes(&path, module_specifier)?)?,
+                json_module_source_code(
+                    module_specifier,
+                    &read_bytes(checked_path.as_ref(), module_specifier)?,
+                )?,
                 module_specifier,
                 None,
             ));
@@ -105,10 +131,12 @@ fn load_module_source_with_media_type(
     }
 
     let code = if should_transpile {
-        ModuleSourceCode::String(transpile_module(module_specifier, &path, media_type)?.into())
+        ModuleSourceCode::String(
+            transpile_module(module_specifier, checked_path.as_ref(), media_type)?.into(),
+        )
     } else {
         ModuleSourceCode::Bytes(
-            read_bytes(&path, module_specifier)?
+            read_bytes(checked_path.as_ref(), module_specifier)?
                 .into_boxed_slice()
                 .into(),
         )
@@ -182,6 +210,17 @@ fn transpile_module(
     transpile_source(module_specifier, source, media_type)
 }
 
+pub(crate) fn check_read_permission<'a>(
+    permissions: &PermissionsContainer,
+    path: Cow<'a, std::path::Path>,
+    api_name: Option<&str>,
+) -> Result<Cow<'a, std::path::Path>, JsErrorBox> {
+    permissions
+        .check_open(path, OpenAccessKind::Read, api_name)
+        .map(|path| path.into_path())
+        .map_err(JsErrorBox::from_err)
+}
+
 fn transpile_source(
     module_specifier: &ModuleSpecifier,
     source: String,
@@ -218,11 +257,20 @@ fn transpile_source(
 pub(crate) struct PackageAwareModuleLoader {
     state: Arc<PackageRuntimeState>,
     initial_cwd: PathBuf,
+    permissions: PermissionsContainer,
 }
 
 impl PackageAwareModuleLoader {
-    pub(crate) fn new(state: Arc<PackageRuntimeState>, initial_cwd: PathBuf) -> Self {
-        Self { state, initial_cwd }
+    pub(crate) fn new(
+        state: Arc<PackageRuntimeState>,
+        initial_cwd: PathBuf,
+        permissions: PermissionsContainer,
+    ) -> Self {
+        Self {
+            state,
+            initial_cwd,
+            permissions,
+        }
     }
 
     fn resolve_referrer(&self, referrer: &str) -> Result<ModuleSpecifier, ModuleLoaderError> {
@@ -438,12 +486,16 @@ impl PackageAwareModuleLoader {
             .lock()
             .expect("module graph lock should not be poisoned")
             .clone();
+        let resolved_specifier = self
+            .state
+            .module_read_checker
+            .ensure_specifier(&self.permissions, resolved_specifier.as_ref())?;
         let loaded = self
             .state
             .module_loader
             .load(
                 &graph,
-                resolved_specifier.as_ref(),
+                &resolved_specifier,
                 maybe_referrer_url.as_ref(),
                 &deno_requested,
             )
@@ -547,30 +599,30 @@ impl ModuleLoader for PackageAwareModuleLoader {
             }
         };
 
-        if !is_npm_package
-            && module_specifier.scheme() == "file"
-            && module_specifier
-                .to_file_path()
-                .ok()
-                .is_some_and(|path| path.exists())
-        {
+        if !is_npm_package && module_specifier.scheme() == "file" {
             return ModuleLoadResponse::Sync(load_module_source_with_media_type(
                 module_specifier,
                 options.requested_module_type,
                 None,
                 matches!(self.state.allow_json_imports, AllowJsonImports::Always),
+                &self.permissions,
             ));
         }
 
         let state = self.state.clone();
         let initial_cwd = self.initial_cwd.clone();
+        let permissions = self.permissions.clone();
         let module_specifier = module_specifier.clone();
         let maybe_referrer = maybe_referrer.map(|referrer| referrer.specifier.clone());
         let requested_module_type = options.requested_module_type;
 
         ModuleLoadResponse::Async(
             async move {
-                let loader = PackageAwareModuleLoader { state, initial_cwd };
+                let loader = PackageAwareModuleLoader {
+                    state,
+                    initial_cwd,
+                    permissions,
+                };
                 loader
                     .load_package_module(
                         &module_specifier,
@@ -602,7 +654,10 @@ impl ModuleLoader for PackageAwareModuleLoader {
 #[cfg(test)]
 mod tests {
     use super::{load_module_source, load_module_source_with_media_type};
+    use crate::embed::sys::EmbedSys;
     use deno_core::{ModuleSourceCode, ModuleSpecifier, ModuleType, RequestedModuleType};
+    use deno_runtime::deno_permissions::PermissionsContainer;
+    use deno_runtime::permissions::RuntimePermissionDescriptorParser;
     use std::{
         fs, io,
         path::{Path, PathBuf},
@@ -626,6 +681,12 @@ mod tests {
         ModuleSpecifier::from_file_path(path).expect("path should convert to file URL")
     }
 
+    fn permissions() -> PermissionsContainer {
+        PermissionsContainer::allow_all(std::sync::Arc::new(
+            RuntimePermissionDescriptorParser::new(EmbedSys::default()),
+        ))
+    }
+
     #[test]
     fn transpiles_typescript_modules_loaded_from_files() {
         let root = temp_dir("typescript").expect("temp dir should be created");
@@ -636,8 +697,9 @@ mod tests {
         )
         .expect("typescript module should be written");
 
-        let module = load_module_source(&specifier(&path), RequestedModuleType::None)
-            .expect("typescript module should load");
+        let module =
+            load_module_source(&specifier(&path), RequestedModuleType::None, &permissions())
+                .expect("typescript module should load");
 
         let _ = fs::remove_dir_all(&root);
         assert_eq!(module.module_type, ModuleType::JavaScript);
@@ -653,7 +715,8 @@ mod tests {
         let path = root.join("data.json");
         fs::write(&path, "{\"answer\":42}").expect("json module should be written");
 
-        let result = load_module_source(&specifier(&path), RequestedModuleType::None);
+        let result =
+            load_module_source(&specifier(&path), RequestedModuleType::None, &permissions());
 
         let _ = fs::remove_dir_all(&root);
         assert!(result.is_err());
@@ -670,6 +733,7 @@ mod tests {
             RequestedModuleType::None,
             None,
             true,
+            &permissions(),
         )
         .expect("json module should load without an import attribute when configured");
 

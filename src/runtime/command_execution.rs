@@ -19,7 +19,9 @@ use tokio::sync::{oneshot, watch};
 
 use super::{BoundPackageEnvironment, child_process, process_context};
 use crate::command::CommandSource;
-use crate::embed::{EmbedContext, init::spawn_v8_worker, js_content_type_header_overrides};
+use crate::embed::{
+    EmbedContext, MainModuleSource, init::spawn_v8_worker, js_content_type_header_overrides,
+};
 use crate::options::{JsRuntimeOptions, RuntimeWorkerOptions};
 use crate::runtime::error::map_package_environment_error;
 use crate::runtime::package_worker::{self, BoundPackageWorkerOptions};
@@ -365,7 +367,7 @@ async fn run_js_command(
             argv0: Some(command_name),
             js_runtime_options: options.js_runtime_options.clone(),
             runtime_worker_options: options.runtime_worker_options.clone(),
-            main_source: None,
+            main_source: MainModuleSource::OnDisk,
             header_overrides: js_content_type_header_overrides(main_module),
             node_ipc_init: None,
         },

@@ -1,7 +1,9 @@
-# TanStack Start MCP UI
+# TanStack Start MCP Apps
 
 Runs one TanStack Start page and one React MCP widget from the same Vite project. In production, FastAPI serves the
 TanStack SPA and mounts the MCP server alongside it.
+
+It combines the [MCP Apps workflow](../../../docs/mcp-apps.md) with a TanStack Start frontend and FastAPI deployment.
 
 ## Setup
 

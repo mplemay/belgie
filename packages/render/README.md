@@ -27,9 +27,11 @@ unsupported for the browser widget graph; server `plugins` may import workspace 
 like Deno from the inline module URL (`__deno_python_inline__.tsx` in the Environment workspace).
 
 `plugins` run only during the server-side Vite build on the privileged renderer. Script-side `plugins` expressions
-still evaluate under workspace-only permissions and are discarded; the privileged rebuild from sealed source is
-authoritative. Prefer pure factories or relative workspace plugin modules when construction must succeed in the
-restricted Script. Both `plugins` and `widget` must appear in a statically analyzable `render(...)` options object
+still evaluate under workspace-only permissions and are discarded; the privileged rebuild from source evaluates the
+plugin expression again. Plugin factories, hooks, and their imports therefore run with the renderer's broader
+permissions. Treat plugins as reviewed application code and use `plugins: []` for untrusted agents. Prefer pure
+factories or relative workspace plugin modules when construction must succeed in the restricted Script. Both
+`plugins` and `widget` must appear in a statically analyzable `render(...)` options object
 (inline literal, variable binding, or static object spread). Computed option keys, opaque spreads, and
 post-declaration mutation are unsupported and throw instead of shipping unsafe code to the browser. The browser
 mounts the extracted `widget` expression and does not re-execute `run()`, so side effects inside `run()` stay

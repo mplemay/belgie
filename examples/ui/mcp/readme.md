@@ -1,6 +1,9 @@
-# MCP
+# MCP Apps
 
 Runs an MCP server whose React widget is served and built by Vite from a conventional `widget.tsx` entry.
+
+This is the runnable version of the [MCP Apps guide](../../../docs/mcp-apps.md). It demonstrates the Python tool,
+widget host bridge, generated caller, and development/production build boundary.
 
 Requires `belgie[mcp,cli]` (included in this example's dependencies).
 

@@ -1,6 +1,6 @@
 # Inline deps
 
-Imports `npm:`, `jsr:`, and URL modules directly inside a `Script` string — no `Environment` or lockfile required. Use
+Imports `npm:`, `jsr:`, and URL modules directly inside a `Script` string -- no `Environment` or lockfile required. Use
 this when dependencies are declared in JavaScript rather than in Python.
 
 ## Run

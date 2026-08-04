@@ -40,7 +40,6 @@ type AsyncExitArgs = tuple[
 def _script_runtime_options(root: Path) -> RuntimeOptions:
     return RuntimeOptions(
         permissions=RuntimePermissions(
-            allow_net=[],
             allow_read=[str(root)],
         ),
     )
@@ -50,7 +49,7 @@ def _render_runtime_options(root: Path) -> RuntimeOptions:
     return RuntimeOptions(
         permissions=RuntimePermissions(
             allow_ffi=[str(root / "node_modules")],
-            allow_net=[],
+            allow_net=["localhost"],
             allow_read=[str(root)],
             allow_sys=DEFAULT_VITE_SYS_PERMISSIONS,
             allow_write=[str(root)],

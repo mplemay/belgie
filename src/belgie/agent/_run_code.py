@@ -33,8 +33,8 @@ preserved and React JSX uses the automatic runtime. Export a callable function; 
 `export default async function run() { ... }`, or use `export function run() { ... }`.
 
 This is a Deno environment, not Node.js. Use Deno-style imports such as `npm:pkg@version`, \
-`jsr:@scope/pkg@version`, or full URLs. `await fetch(...)` is available when this capability uses \
-its default runtime configuration.
+`jsr:@scope/pkg@version`, or full URLs. Network access is denied by default; configure \
+`RuntimeOptions` with an explicit `allow_net` host before using `fetch(...)`.
 
 Important restrictions:
 - External agent tools are not available inside the sandbox.

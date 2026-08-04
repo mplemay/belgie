@@ -160,6 +160,16 @@ need JS/TS from Python without MCP or an agent framework:
   binaries (Vite, esbuild, etc.).
 - **Data bridge:** Pass JSON-safe dicts, lists, and primitives across the boundary.
 
+### Runtime permissions
+
+`RuntimePermissions` gates Deno APIs and every host-backed module read, including static and
+dynamic imports, JSON modules, and Node `require()`. File entrypoints created with `Script.from_file`
+and command entrypoints must be covered by `allow_read`; inline and in-memory sources do not need a
+host read grant. Belgie-managed npm packages are available to the module loader without adding their
+`node_modules` or cache roots to the runtime's general read grants. Package imports therefore work
+in restricted runtimes, while `Deno.readFile`, arbitrary absolute `file:` URLs, and other direct host
+reads remain subject to the caller's `allow_read` and `deny_read` settings.
+
 ```python
 import asyncio
 
@@ -209,8 +219,10 @@ worker). The agent Script stays workspace-restricted — no host `/etc`/`/proc`,
 `allow_ffi` — while Vite runs only in that host-mediated worker (workspace FFI/sys/write, no host
 path grants) and returns one self-contained HTML string with inline JavaScript, CSS, and assets.
 Package imports are supported. Relative host-file imports are intentionally unavailable, and Vite
-plugins run only during the server build before their expressions and plugin-only imports are
-removed from the browser bundle. This API is independent from `@belgie/mcp` and its path-based
+plugins run only during the server build, where their factories, hooks, and imports have the
+renderer worker's broader permissions. Treat them as reviewed application code and use
+`plugins: []` for untrusted agents. Plugin-only imports are removed from the browser bundle. This
+API is independent from `@belgie/mcp` and its path-based
 `widget.tsx` development and production flow.
 
 ## Examples
