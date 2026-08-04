@@ -117,9 +117,11 @@ export default defineConfig({
 });
 ```
 
-Development serves each widget at `/widgets/<name>/index.html` with Vite HMR. A production build
-emits `dist/widgets/<name>/index.html` with JavaScript, CSS, and supported assets inlined. Verify
-that this file exists before starting a production extension with `dev=False` and `build=False`.
+Development serves each widget at `/widgets/<name>/index.html` with Vite HMR. The default production build emits
+`dist/widgets/<name>/index.html` with JavaScript, CSS, and supported assets inlined. For projects that serve a normal
+Vite asset directory, configure `belgie({ bundle: "shared" })` instead; the generated widget HTML then references the
+shared Vite assets using the configured `base`. Verify the widget HTML and its emitted asset directory exist before
+starting a production extension with `dev=False` and `build=False`.
 
 ## Generate typed tool callers
 

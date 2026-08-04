@@ -56,9 +56,14 @@ export default defineConfig({
 });
 ```
 
-Development serves `/widgets/<name>/index.html`. Production emits one self-contained HTML file at
-`dist/widgets/<name>/index.html` for each widget. The plugin rejects duplicate widget names,
-missing default exports, retained JavaScript chunks, and unsupported non-CSS assets.
+Development serves `/widgets/<name>/index.html`. By default, production emits one self-contained HTML file at
+`dist/widgets/<name>/index.html` for each widget. The plugin rejects duplicate widget names, missing default exports,
+retained JavaScript chunks, and unsupported non-CSS assets in this inline mode.
+
+Use `belgie({ bundle: "shared" })` for traditional Vite bundling. This adds widget entries to the existing Vite input
+graph so host application code and dependencies can be reused. Widget HTML remains under `dist/widgets`, while Vite
+emits shared JavaScript, CSS, and other assets normally; serve the configured Vite output directory and configure
+`base` so those URLs are reachable by the widget host.
 
 The widget entry is always named `widget.tsx` below the configured source directory. The Python
 extension owns the `Path` registration; this package owns the browser bundle and host bridge.

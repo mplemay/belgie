@@ -1,5 +1,5 @@
-import { rmSync } from "node:fs";
-import { isAbsolute, relative, resolve } from "node:path";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { basename, extname, isAbsolute, relative, resolve } from "node:path";
 
 import type { OutputOptions } from "rolldown";
 import { build, normalizePath } from "vite";
@@ -22,8 +22,11 @@ const REACT_REFRESH_PLUGIN_NAME = "vite:react-refresh";
 const TEXT_DECODER = new TextDecoder();
 
 export interface BelgiePluginOptions {
+  bundle?: "inline" | "shared";
   srcDir?: string;
 }
+
+type RollupInput = string | string[] | Record<string, string>;
 
 interface BuildAsset {
   fileName: string;
@@ -38,6 +41,7 @@ interface BuildChunk {
   fileName: string;
   imports: string[];
   isEntry: boolean;
+  name?: string;
   type: "chunk";
   viteMetadata?: { importedCss?: Set<string> };
 }
@@ -100,6 +104,129 @@ function renderWidgetBundle(name: string, bundle: Record<string, BuildArtifact>)
     return readAsset(asset);
   });
   return renderWidgetHtmlDocument({ inlineScript: entry.code, inlineStyles: styles });
+}
+
+function toRootRelativeInput(entry: string, root: string): string {
+  if (entry.startsWith(VIRTUAL_PREFIX) || entry.startsWith("\0")) {
+    return entry;
+  }
+  const absolute = isAbsolute(entry) ? entry : resolve(root, entry);
+  const rel = relative(root, absolute);
+  if (rel !== "" && !rel.startsWith("..") && !isAbsolute(rel)) {
+    return normalizePath(rel);
+  }
+  return normalizePath(entry);
+}
+
+function inputEntryKey(entry: string, root: string, used: Set<string>): string {
+  const base = basename(entry, extname(entry));
+  if (!used.has(base)) {
+    used.add(base);
+    return base;
+  }
+  const absolute = isAbsolute(entry) ? entry : resolve(root, entry);
+  const rel = normalizePath(relative(root, absolute));
+  const withoutExt = rel.endsWith(extname(rel)) ? rel.slice(0, -extname(rel).length) : rel;
+  const key = withoutExt.replaceAll("/", "-").replace(/^\.+/, "") || base;
+  if (used.has(key)) {
+    throw new Error(`belgie: duplicate shared Vite input name "${key}" derived from ${entry}`);
+  }
+  used.add(key);
+  return key;
+}
+
+function normalizeInput(input: RollupInput | undefined, root: string): Record<string, string> {
+  if (input === undefined) {
+    const indexPath = resolve(root, "index.html");
+    return existsSync(indexPath) ? { index: "index.html" } : {};
+  }
+  if (typeof input === "string") {
+    const used = new Set<string>();
+    return { [inputEntryKey(input, root, used)]: toRootRelativeInput(input, root) };
+  }
+  if (Array.isArray(input)) {
+    const used = new Set<string>();
+    return Object.fromEntries(
+      input.map((entry) => [inputEntryKey(entry, root, used), toRootRelativeInput(entry, root)]),
+    );
+  }
+  return Object.fromEntries(Object.entries(input).map(([name, entry]) => [name, toRootRelativeInput(entry, root)]));
+}
+
+function sharedInput(input: RollupInput | undefined, widgets: WidgetCandidate[], root: string): Record<string, string> {
+  const entries = normalizeInput(input, root);
+  for (const widget of widgets) {
+    if (entries[widget.name] !== undefined) {
+      throw new Error(`belgie: shared widget entry name "${widget.name}" conflicts with an existing Vite input`);
+    }
+    entries[widget.name] = `${VIRTUAL_PREFIX}${encodeURIComponent(widget.name)}`;
+  }
+  return entries;
+}
+
+function assetUrl(fileName: string, base: string): string {
+  const normalizedBase = base.endsWith("/") ? base : `${base}/`;
+  return `${normalizedBase}${normalizePath(fileName)}`;
+}
+
+function collectImportedCss(entry: BuildChunk, chunksByFileName: Map<string, BuildChunk>): string[] {
+  const seenChunks = new Set<string>();
+  const cssNames: string[] = [];
+  const seenCss = new Set<string>();
+
+  const visit = (chunk: BuildChunk) => {
+    if (seenChunks.has(chunk.fileName)) {
+      return;
+    }
+    seenChunks.add(chunk.fileName);
+    for (const fileName of chunk.imports) {
+      const importee = chunksByFileName.get(fileName);
+      if (importee !== undefined) {
+        visit(importee);
+      }
+    }
+    for (const cssName of chunk.viteMetadata?.importedCss ?? []) {
+      if (!seenCss.has(cssName)) {
+        seenCss.add(cssName);
+        cssNames.push(cssName);
+      }
+    }
+  };
+
+  visit(entry);
+  return cssNames;
+}
+
+function renderSharedWidgetBundle(name: string, bundle: Record<string, BuildArtifact>, base: string): string {
+  const chunks = Object.values(bundle).filter((artifact): artifact is BuildChunk => artifact.type === "chunk");
+  const entryId = `${VIRTUAL_MODULE_PREFIX}${name}`;
+  const entries = chunks.filter((chunk) => chunk.isEntry && (chunk.facadeModuleId === entryId || chunk.name === name));
+  if (entries.length !== 1) {
+    throw new Error(`belgie: expected one shared entry chunk for widget "${name}", received ${entries.length}`);
+  }
+
+  const entry = entries[0];
+  const assets = Object.values(bundle).filter((artifact): artifact is BuildAsset => artifact.type === "asset");
+  const assetsByName = new Map(assets.map((asset) => [asset.fileName, asset]));
+  const chunksByFileName = new Map(chunks.map((chunk) => [chunk.fileName, chunk]));
+  const importedCss = collectImportedCss(entry, chunksByFileName);
+  const cssNames =
+    importedCss.length > 0
+      ? importedCss
+      : assets
+          .map((asset) => asset.fileName)
+          .filter((fileName) => fileName.endsWith(".css"))
+          .toSorted();
+  for (const cssName of cssNames) {
+    if (!assetsByName.has(cssName)) {
+      throw new Error(`belgie: shared widget "${name}" references missing CSS asset ${cssName}`);
+    }
+  }
+
+  return renderWidgetHtmlDocument({
+    scripts: [assetUrl(entry.fileName, base)],
+    styles: cssNames.map((cssName) => assetUrl(cssName, base)),
+  });
 }
 
 function restoreEnvironment(name: string, previous: string | undefined): void {
@@ -165,6 +292,7 @@ async function buildWidget(widget: WidgetCandidate, config: ResolvedConfig, conf
 }
 
 export function belgie(options: BelgiePluginOptions = {}): Plugin {
+  const bundleMode = options.bundle ?? "inline";
   const rawSrcDir = options.srcDir ?? "src/widgets";
   const moduleMode = process.env[INTERNAL_PACKAGE_TYPE_ENV] === MODULE_PACKAGE_TYPE;
   const requestedWidgetPath = process.env[INTERNAL_WIDGET_PATH_ENV];
@@ -178,9 +306,10 @@ export function belgie(options: BelgiePluginOptions = {}): Plugin {
   let widgetsBuilt = false;
 
   return {
-    api: { srcDir: rawSrcDir },
+    api: { bundle: bundleMode, srcDir: rawSrcDir },
     async closeBundle() {
       if (
+        bundleMode !== "inline" ||
         !isBuildCommand ||
         requestedWidgetPath !== undefined ||
         resolvedConfig === undefined ||
@@ -251,7 +380,30 @@ export function belgie(options: BelgiePluginOptions = {}): Plugin {
         }
 
         widgetMap = new Map(valid.map((widget) => [widget.name, widget]));
-        const existingInput = config.build?.rolldownOptions?.input;
+        const existingInput =
+          config.environments?.client?.build?.rolldownOptions?.input ??
+          config.environments?.client?.input ??
+          config.build?.rolldownOptions?.input ??
+          config.input;
+        if (bundleMode === "shared") {
+          usesOrchestrationEntry = false;
+          return {
+            environments: {
+              client: {
+                build: {
+                  rolldownOptions: {
+                    input: sharedInput(existingInput, valid, projectRoot),
+                  },
+                },
+              },
+            },
+            resolve: { dedupe: ["react", "react-dom"] },
+            optimizeDeps: {
+              entries: [`${resolvedSrcDir}/*/widget.tsx`],
+              include: ["react", "react-dom/client", "react/jsx-runtime"],
+            },
+          };
+        }
         usesOrchestrationEntry = existingInput === undefined;
         return {
           resolve: { dedupe: ["react", "react-dom"] },
@@ -410,6 +562,29 @@ export function belgie(options: BelgiePluginOptions = {}): Plugin {
         return `${VIRTUAL_MODULE_PREFIX}${name}`;
       }
       return null;
+    },
+    writeBundle: {
+      handler(_options, bundle) {
+        if (
+          bundleMode !== "shared" ||
+          !isBuildCommand ||
+          requestedWidgetPath !== undefined ||
+          resolvedConfig === undefined ||
+          this.environment.config.consumer === "server"
+        ) {
+          return;
+        }
+
+        const widgetOutputDir = resolve(projectRoot, "dist", "widgets");
+        rmSync(widgetOutputDir, { recursive: true, force: true });
+        for (const widget of widgetMap.values()) {
+          const html = renderSharedWidgetBundle(widget.name, bundle, resolvedConfig.base);
+          const widgetDir = resolve(widgetOutputDir, widget.name);
+          mkdirSync(widgetDir, { recursive: true });
+          writeFileSync(resolve(widgetDir, "index.html"), html, "utf8");
+        }
+      },
+      order: "post",
     },
     transform(code, id) {
       const normalizedId = normalizePath(id);

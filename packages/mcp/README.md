@@ -69,8 +69,8 @@ function Weather() {
 mountWidget(Weather);
 ```
 
-Add the plugin to a normal Vite configuration. Development serves each widget at `/widgets/<name>/index.html`;
-production emits a self-contained `dist/widgets/<name>/index.html` with JavaScript, CSS, and assets inlined.
+Add the plugin to a normal Vite configuration. Development serves each widget at `/widgets/<name>/index.html`.
+By default, production emits a self-contained `dist/widgets/<name>/index.html` with JavaScript, CSS, and assets inlined.
 
 ```ts
 import { defineConfig } from "vite";
@@ -80,6 +80,17 @@ export default defineConfig({
   plugins: [belgie({ srcDir: "src/widgets" })],
 });
 ```
+
+For a traditional multi-entry build, opt into shared output:
+
+```ts
+plugins: [belgie({ bundle: "shared" })],
+```
+
+Shared mode adds every widget to the project’s Vite input graph. Vite keeps shared JavaScript, CSS, fonts, images, and
+dynamic-import chunks as normal emitted assets, while `dist/widgets/<name>/index.html` references the widget entry and
+its CSS. Serve the configured Vite output directory at the paths described by `base`; use the default inline mode when
+the widget must be completely self-contained.
 
 ## Read widget host context
 

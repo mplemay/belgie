@@ -5,7 +5,7 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [
-    belgie(),
+    belgie({ bundle: "shared" }),
     tanstackStart({
       spa: {
         enabled: true,
