@@ -160,6 +160,16 @@ need JS/TS from Python without MCP or an agent framework:
   binaries (Vite, esbuild, etc.).
 - **Data bridge:** Pass JSON-safe dicts, lists, and primitives across the boundary.
 
+### Runtime permissions
+
+`RuntimePermissions` gates Deno APIs and every host-backed module read, including static and
+dynamic imports, JSON modules, and Node `require()`. File entrypoints created with `Script.from_file`
+and command entrypoints must be covered by `allow_read`; inline and in-memory sources do not need a
+host read grant. Belgie-managed npm packages are available to the module loader without adding their
+`node_modules` or cache roots to the runtime's general read grants. Package imports therefore work
+in restricted runtimes, while `Deno.readFile`, arbitrary absolute `file:` URLs, and other direct host
+reads remain subject to the caller's `allow_read` and `deny_read` settings.
+
 ```python
 import asyncio
 

@@ -23,7 +23,6 @@ use deno_runtime::deno_permissions::PermissionsContainer;
 use deno_runtime::deno_tls::RootCertStoreProvider;
 use deno_runtime::deno_tls::rustls::RootCertStore;
 use deno_runtime::deno_web::{Blob, BlobStore, BlobStoreTrait};
-use deno_runtime::permissions::RuntimePermissionDescriptorParser;
 use deno_runtime::{
     FeatureChecker, UnconfiguredRuntimeOptions, WorkerExecutionMode, WorkerLogLevel,
 };
@@ -31,9 +30,9 @@ use node_resolver::errors::PackageJsonLoadError;
 use once_cell::sync::OnceCell;
 
 use crate::embed::sys::EmbedSys;
-use crate::embed::{EmbedContext, PackageRuntimeState, prepare_package_runtime};
+use crate::embed::{EmbedContext, MainModuleSource, PackageRuntimeState, prepare_package_runtime};
 use crate::options::{JsRuntimeOptions, RuntimeWorkerOptions};
-use crate::runtime::error::map_package_environment_error;
+use crate::runtime::error::{map_package_environment_error, map_package_runtime_preparation_error};
 use crate::runtime::module_loader::PackageAwareModuleLoader;
 use crate::runtime::native_addon_host;
 use crate::types::error::BindingError;
@@ -43,7 +42,7 @@ pub(crate) struct BoundPackageWorkerOptions {
     pub argv0: Option<String>,
     pub js_runtime_options: JsRuntimeOptions,
     pub runtime_worker_options: RuntimeWorkerOptions,
-    pub main_source: Option<String>,
+    pub main_source: MainModuleSource,
     pub header_overrides: HashMap<ModuleSpecifier, HashMap<String, String>>,
     pub node_ipc_init: Option<(i64, ChildIpcSerialization)>,
 }
@@ -53,6 +52,7 @@ struct PackageWorkerRunOptions {
     argv0: Option<String>,
     js_runtime_options: JsRuntimeOptions,
     runtime_worker_options: RuntimeWorkerOptions,
+    permissions: PermissionsContainer,
     node_ipc_init: Option<(i64, ChildIpcSerialization)>,
 }
 
@@ -72,15 +72,19 @@ pub(crate) async fn create_bound_package_worker(
         header_overrides,
         node_ipc_init,
     } = options;
+    let permissions = runtime_worker_options
+        .permissions_container()
+        .map_err(BindingError::runtime)?;
     let state = Arc::new(
         prepare_package_runtime(
             context.clone(),
             main_module.clone(),
             main_source,
             header_overrides,
+            &permissions,
         )
         .await
-        .map_err(map_package_environment_error)?,
+        .map_err(map_package_runtime_preparation_error)?,
     );
     create_package_worker(
         state,
@@ -92,6 +96,7 @@ pub(crate) async fn create_bound_package_worker(
             argv0,
             js_runtime_options,
             runtime_worker_options,
+            permissions,
             node_ipc_init,
         },
         roots,
@@ -160,6 +165,7 @@ fn create_package_worker(
         argv0,
         js_runtime_options,
         runtime_worker_options,
+        permissions,
         node_ipc_init,
     } = options;
     let resolver_factory = context.resolver_factory();
@@ -180,13 +186,6 @@ fn create_package_worker(
         npm_resolver: npm_resolver.clone(),
         memory_files: context.memory_files().clone(),
     });
-    let permissions = PermissionsContainer::new(
-        Arc::new(RuntimePermissionDescriptorParser::new(EmbedSys::default())),
-        runtime_worker_options
-            .permissions()
-            .to_permissions()
-            .map_err(BindingError::runtime)?,
-    );
     let unconfigured_runtime = create_unconfigured_runtime(&js_runtime_options, roots)?;
     let main_module_url = url::Url::parse(main_module.as_str())
         .map_err(|error| BindingError::runtime(error.to_string()))?;
@@ -274,36 +273,43 @@ struct BelgieModuleLoaderFactory {
 }
 
 impl ModuleLoaderFactory for BelgieModuleLoaderFactory {
-    fn create_for_main(&self, _root_permissions: PermissionsContainer) -> CreateModuleLoaderResult {
-        self.create(false)
+    fn create_for_main(&self, root_permissions: PermissionsContainer) -> CreateModuleLoaderResult {
+        self.create(false, root_permissions)
     }
 
     fn create_for_worker(
         &self,
         _parent_permissions: PermissionsContainer,
-        _permissions: PermissionsContainer,
+        permissions: PermissionsContainer,
         _maybe_main_module_blob: Option<(ModuleSpecifier, Arc<Blob>)>,
     ) -> CreateModuleLoaderResult {
-        self.create(true)
+        self.create(true, permissions)
     }
 }
 
 impl BelgieModuleLoaderFactory {
-    fn create(&self, is_worker: bool) -> CreateModuleLoaderResult {
+    fn create(
+        &self,
+        is_worker: bool,
+        permissions: PermissionsContainer,
+    ) -> CreateModuleLoaderResult {
         let state = if is_worker {
             Arc::new(self.state.with_empty_graph())
         } else {
             self.state.clone()
         };
+        let module_read_checker = state.module_read_checker.clone();
         CreateModuleLoaderResult {
             module_loader: Rc::new(PackageAwareModuleLoader::new(
                 state,
                 self.initial_cwd.clone(),
+                permissions,
             )),
             node_require_loader: Rc::new(BelgieNodeRequireLoader {
                 cjs_tracker: self.cjs_tracker.clone(),
                 npm_resolver: self.npm_resolver.clone(),
                 memory_files: self.memory_files.clone(),
+                module_read_checker,
             }),
             hook_registry: None,
         }
@@ -315,15 +321,16 @@ struct BelgieNodeRequireLoader {
     cjs_tracker: CjsTrackerRc<DenoInNpmPackageChecker, EmbedSys>,
     npm_resolver: NpmResolver<EmbedSys>,
     memory_files: deno_resolver::loader::MemoryFilesRc,
+    module_read_checker: crate::embed::ModuleReadChecker,
 }
 
 impl NodeRequireLoader for BelgieNodeRequireLoader {
     fn ensure_read_permission<'a>(
         &self,
-        _permissions: &mut PermissionsContainer,
+        permissions: &mut PermissionsContainer,
         path: Cow<'a, Path>,
     ) -> Result<Cow<'a, Path>, JsErrorBox> {
-        Ok(path)
+        self.module_read_checker.ensure_path(permissions, path)
     }
 
     fn load_text_file_lossy(&self, path: &Path) -> Result<FastString, JsErrorBox> {
