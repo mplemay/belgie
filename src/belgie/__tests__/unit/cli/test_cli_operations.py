@@ -106,10 +106,20 @@ def fake_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(_operations, "Environment", FakeEnvironment)
 
 
-def write_pyproject(root: Path, dependencies: dict[str, str] | None = None) -> None:
+def write_pyproject(
+    root: Path,
+    dependencies: dict[str, str] | None = None,
+    *,
+    minimum_dependency_age: str | None = None,
+) -> None:
     document: dict[str, Any] = {"project": {"name": "demo"}}
+    belgie: dict[str, Any] = {}
+    if minimum_dependency_age is not None:
+        belgie["minimum-dependency-age"] = minimum_dependency_age
     if dependencies is not None:
-        document["tool"] = {"belgie": {"dependencies": dependencies}}
+        belgie["dependencies"] = dependencies
+    if belgie:
+        document["tool"] = {"belgie": belgie}
     (root / "pyproject.toml").write_text(rtoml.dumps(document, pretty=True), encoding="utf-8")
 
 
@@ -125,16 +135,11 @@ def test_add_dependency_writes_pyproject_and_commits_lockfile(tmp_path: Path) ->
 
 
 def test_create_environment_uses_project_minimum_dependency_age(tmp_path: Path) -> None:
-    document = {
-        "project": {"name": "demo"},
-        "tool": {
-            "belgie": {
-                "minimum-dependency-age": "P7D",
-                "dependencies": {"camelcase": "8.0.0"},
-            },
-        },
-    }
-    (tmp_path / "pyproject.toml").write_text(rtoml.dumps(document, pretty=True), encoding="utf-8")
+    write_pyproject(
+        tmp_path,
+        {"camelcase": "8.0.0"},
+        minimum_dependency_age="P7D",
+    )
 
     with create_environment(load_project(tmp_path), frozen=False):
         pass
@@ -143,25 +148,6 @@ def test_create_environment_uses_project_minimum_dependency_age(tmp_path: Path) 
     assert fake_environment is not None
     assert fake_environment.options is not None
     assert "minimum_dependency_age=Some(Enabled" in repr(fake_environment.options)
-
-
-def test_update_project_flag_overrides_project_minimum_dependency_age(tmp_path: Path) -> None:
-    document = {
-        "project": {"name": "demo"},
-        "tool": {
-            "belgie": {
-                "minimum-dependency-age": "P7D",
-                "dependencies": {"camelcase": "8.0.0"},
-            },
-        },
-    }
-    (tmp_path / "pyproject.toml").write_text(rtoml.dumps(document, pretty=True), encoding="utf-8")
-
-    update_project(load_project(tmp_path), ["camelcase"], latest=False, minimum_dependency_age="0")
-
-    assert FakeEnvironment.last is not None
-    assert FakeEnvironment.last.options is not None
-    assert "minimum_dependency_age=Some(Disabled)" in repr(FakeEnvironment.last.options)
 
 
 @pytest.mark.parametrize(
@@ -182,6 +168,11 @@ def test_update_project_flag_overrides_project_minimum_dependency_age(tmp_path: 
             {"alias": "std_path", "specifier": "jsr:@std/path@^1"},
             id="add",
         ),
+        pytest.param(
+            update_project,
+            {"packages": ["camelcase"], "latest": False},
+            id="update",
+        ),
     ],
 )
 def test_resolution_operations_flag_overrides_project_minimum_dependency_age(
@@ -189,16 +180,11 @@ def test_resolution_operations_flag_overrides_project_minimum_dependency_age(
     operation: Callable[..., object],
     kwargs: dict[str, object],
 ) -> None:
-    document = {
-        "project": {"name": "demo"},
-        "tool": {
-            "belgie": {
-                "minimum-dependency-age": "P7D",
-                "dependencies": {"camelcase": "8.0.0"},
-            },
-        },
-    }
-    (tmp_path / "pyproject.toml").write_text(rtoml.dumps(document, pretty=True), encoding="utf-8")
+    write_pyproject(
+        tmp_path,
+        {"camelcase": "8.0.0"},
+        minimum_dependency_age="P7D",
+    )
 
     operation(load_project(tmp_path), minimum_dependency_age="0", **kwargs)
 
@@ -208,16 +194,11 @@ def test_resolution_operations_flag_overrides_project_minimum_dependency_age(
 
 
 def test_create_environment_reports_invalid_minimum_dependency_age(tmp_path: Path) -> None:
-    document = {
-        "project": {"name": "demo"},
-        "tool": {
-            "belgie": {
-                "minimum-dependency-age": "7 days",
-                "dependencies": {"camelcase": "8.0.0"},
-            },
-        },
-    }
-    (tmp_path / "pyproject.toml").write_text(rtoml.dumps(document, pretty=True), encoding="utf-8")
+    write_pyproject(
+        tmp_path,
+        {"camelcase": "8.0.0"},
+        minimum_dependency_age="7 days",
+    )
 
     with pytest.raises(ProjectError, match="minimum_dependency_age"):
         create_environment(load_project(tmp_path), frozen=False)

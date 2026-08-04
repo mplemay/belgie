@@ -108,9 +108,9 @@ impl PyEnvironmentOptions {
                 skip_types,
                 normalize_certificate_errors(unsafely_ignore_certificate_errors)?,
                 import_package_lockfile,
+                minimum_dependency_age,
                 minimum_dependency_age_minutes,
-            )
-            .with_minimum_dependency_age(minimum_dependency_age),
+            ),
             cache_setting: cache_setting.1,
             allow_json_imports: allow_json_imports.1,
             node_modules_dir: node_modules_dir.map(|value| value.1),

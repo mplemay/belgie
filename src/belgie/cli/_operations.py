@@ -38,16 +38,12 @@ def create_environment(
         raise ProjectError(msg)
 
     configured_age = project.minimum_dependency_age if minimum_dependency_age is None else minimum_dependency_age
-    if configured_age is None:
-        return Environment(
-            project.dependencies,
-            path=project.root,
-            lockfile=lockfile if frozen else None,
-        )
-    try:
-        options = EnvironmentOptions(minimum_dependency_age=configured_age)
-    except ValueError as exc:
-        raise ProjectError(str(exc)) from exc
+    options = None
+    if configured_age is not None:
+        try:
+            options = EnvironmentOptions(minimum_dependency_age=configured_age)
+        except ValueError as exc:
+            raise ProjectError(str(exc)) from exc
     return Environment(
         project.dependencies,
         path=project.root,

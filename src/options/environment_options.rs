@@ -62,6 +62,7 @@ impl EnvironmentOptions {
         skip_types: bool,
         unsafely_ignore_certificate_errors: Option<Vec<String>>,
         import_package_lockfile: bool,
+        minimum_dependency_age: Option<NewestDependencyDate>,
         minimum_dependency_age_minutes: Option<u64>,
     ) -> Self {
         Self {
@@ -77,17 +78,9 @@ impl EnvironmentOptions {
             skip_types,
             unsafely_ignore_certificate_errors,
             import_package_lockfile,
-            minimum_dependency_age: None,
+            minimum_dependency_age,
             minimum_dependency_age_minutes,
         }
-    }
-
-    pub(crate) fn with_minimum_dependency_age(
-        mut self,
-        minimum_dependency_age: Option<NewestDependencyDate>,
-    ) -> Self {
-        self.minimum_dependency_age = minimum_dependency_age;
-        self
     }
 
     pub(crate) fn cache_setting(&self) -> &CacheSetting {
@@ -220,6 +213,7 @@ mod tests {
             false,
             None,
             false,
+            None,
             Some(0),
         );
         assert!(matches!(
@@ -243,6 +237,7 @@ mod tests {
             false,
             None,
             false,
+            None,
             Some(5),
         );
         let now = chrono::Utc::now();
@@ -257,13 +252,26 @@ mod tests {
 
     #[test]
     fn minimum_dependency_age_explicit_date_takes_precedence() {
-        let options = EnvironmentOptions::default().with_minimum_dependency_age(Some(
-            NewestDependencyDate::Enabled(
+        let options = EnvironmentOptions::new(
+            CacheSetting::Use,
+            true,
+            AllowJsonImports::WithAttribute,
+            None,
+            None,
+            deno_npm_installer::graph::NpmCachingStrategy::Eager,
+            false,
+            true,
+            false,
+            false,
+            None,
+            false,
+            Some(NewestDependencyDate::Enabled(
                 chrono::DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
                     .unwrap()
                     .with_timezone(&chrono::Utc),
-            ),
-        ));
+            )),
+            None,
+        );
 
         assert!(matches!(
             options.newest_dependency_date().unwrap(),
