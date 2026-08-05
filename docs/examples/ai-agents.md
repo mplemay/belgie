@@ -1,8 +1,8 @@
 # AI agent examples
 
-The AI examples give agents JavaScript sandbox tools for JavaScript, TypeScript, and TSX. The Pydantic AI example
-uses `run_typescript`; the LangChain example uses `run_code`. Both examples ask the agent to use TypeScript to fetch
-and summarize Hacker News data.
+These examples show how agents use Belgie to run JavaScript, TypeScript, and TSX. Pydantic AI uses
+`run_typescript`; LangChain uses `run_code`. Both examples ask the agent to fetch and summarize
+Hacker News data with TypeScript.
 
 Network access is denied by default. These examples explicitly allow only the
 `hacker-news.firebaseio.com` host.
@@ -11,7 +11,7 @@ Network access is denied by default. These examples explicitly allow only the
 
 - `BelgieSandbox` with Pydantic AI.
 - `BelgieMiddleware` with LangChain.
-- Agent-authored complete `belgie.Script` modules.
+- Agent-authored complete TypeScript modules with an exported `run` function.
 - Framework-specific installation and result handling.
 
 ## Pydantic AI
@@ -32,7 +32,7 @@ shipped example:
 --8<-- "examples/ai/pydantic-ai/src/pydantic_ai_example/__main__.py"
 ```
 
-The full prompt asks the model to export an async `run` function from a TypeScript module. See
+The prompt asks the model to export an async `run` function from a TypeScript module. See
 [`examples/ai/pydantic-ai`](https://github.com/mplemay/belgie/tree/main/examples/ai/pydantic-ai).
 
 ## LangChain
@@ -56,7 +56,7 @@ See [`examples/ai/langchain`](https://github.com/mplemay/belgie/tree/main/exampl
 
 ## Render an inline widget
 
-Change the agent request to ask for a TSX module that returns `render(...)`:
+To try inline rendering, ask the agent for a TSX module that returns `render(...)`:
 
 ```tsx
 import { render } from "npm:@belgie/render";

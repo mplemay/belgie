@@ -1,7 +1,7 @@
 # `@belgie/mcp`
 
-`@belgie/mcp` provides the browser-side pieces of a Belgie MCP App: a connected React widget,
-typed MCP tool callers, host-context hooks, host actions, modal support, and a Vite plugin.
+Use `@belgie/mcp` to build the browser side of a Belgie MCP App. It provides connected React
+widgets, typed MCP tool callers, host-context hooks, host actions, modal support, and a Vite plugin.
 
 Use this page for TypeScript and React APIs. Use [MCP Apps](../mcp-apps.md) for Python tool
 registration, Belgie project dependencies, and the server development and production workflow.
@@ -51,23 +51,9 @@ export default function Weather() {
 }
 ```
 
-For a React entry that is mounted by another application, export the component instead and let the
-application render it:
-
-```tsx
-import { Widget } from "@belgie/mcp";
-
-export default function Weather() {
-  return (
-    <Widget metadata={{ name: "Weather", version: "1.0.0" }}>
-      <main>Ready</main>
-    </Widget>
-  );
-}
-```
-
-Use `mountWidget` directly only when you own the HTML entry and are not using the discovered
-`<srcDir>/<name>/widget.tsx` convention.
+If another application owns the HTML entry, export the component and let that application render
+it instead. Use `mountWidget` directly only when you own the HTML entry and are not using the
+discovered `<srcDir>/<name>/widget.tsx` convention.
 
 `Widget` connects to the MCP Apps host before rendering its children. Children that use host-bound
 hooks or helpers must be descendants of `Widget`. Use `fallback` for the connecting state and

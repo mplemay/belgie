@@ -1,7 +1,9 @@
 # Belgie CLI
 
-Install the CLI extra when you want Belgie to manage JavaScript dependencies and commands declared
-in a project's `pyproject.toml`:
+Use the CLI when a project owns its JavaScript dependencies and package commands. It reads the
+configuration in `pyproject.toml`, creates and updates `deno.lock`, and runs the declared tools.
+
+Install the CLI extra:
 
 ```bash
 uv add "belgie[cli]"
@@ -10,8 +12,8 @@ uv add "belgie[cli]"
 The CLI discovers the nearest `pyproject.toml` from the current directory. Use `-C` or `--project`
 to select a project explicitly.
 
-Use the CLI for project-owned dependencies. Use [`Environment`](environment.md) methods directly
-when dependency setup belongs inside a Python application rather than a project workflow.
+Use [`Environment`](environment.md) methods directly when dependency setup belongs inside a Python
+application rather than a project workflow.
 
 ## Configure a project
 

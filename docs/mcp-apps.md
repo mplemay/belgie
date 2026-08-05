@@ -1,12 +1,15 @@
 # MCP Apps
 
-Use `BelgieExtension` to attach a React widget to a Python MCP tool. Widgets are regular Vite
-entries at `<srcDir>/<name>/widget.tsx`; Belgie serves them from Vite during development and reads
-self-contained built HTML in production.
+Use `BelgieExtension` when a Python MCP tool needs a React widget in the host. You keep the widget
+as a regular Vite entry at `<srcDir>/<name>/widget.tsx`; Belgie serves it from Vite during
+development and reads self-contained built HTML in production.
 
 The workflow has four parts: Python registers the tool and widget path, Vite builds the browser
 entry, code generation creates typed callers from the MCP schema, and the widget reads or refreshes
 tool results through the connected host.
+
+Choose MCP Apps when the widget belongs to a Python MCP server. For an agent-authored widget that
+returns one HTML document as a tool result, use [@belgie/render](packages/render.md) instead.
 
 ## Install
 

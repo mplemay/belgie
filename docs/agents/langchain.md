@@ -1,7 +1,8 @@
 # LangChain
 
-Use `BelgieMiddleware` to add sandboxed `run_code` and session management to a LangChain agent.
-The middleware supports both synchronous and asynchronous LangChain agent execution.
+Use `BelgieMiddleware` when a LangChain agent needs JavaScript, TypeScript, or TSX. The middleware
+adds sandboxed `run_code`, manages the Belgie session, and supports synchronous and asynchronous
+agent execution.
 
 ## Install
 
@@ -91,9 +92,9 @@ the identifier stable across runs when the application uses multiple deferred ca
 ## Async agents and rendering
 
 Use `agent.ainvoke(...)` for an asynchronous run. Keep the agent invocation active until the
-middleware has closed its session. TSX scripts can return
-`npm:@belgie/render` in the same way as the Pydantic AI integration. The renderer is a separate
-host-side pass; it does not grant the model-visible script access to host system paths or FFI.
+middleware has closed its session. TSX scripts can return `npm:@belgie/render` in the same way as
+the Pydantic AI integration. The renderer is a separate host-side pass; it does not grant the
+model-visible script access to host system paths or FFI.
 
 See [@belgie/render](../packages/render.md) for widget constraints.
 

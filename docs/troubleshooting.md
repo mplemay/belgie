@@ -2,7 +2,8 @@
 
 Use the error or symptom as the starting point. Most setup failures come from a missing optional
 extra, a project discovered from the wrong directory, an incomplete JavaScript lockfile, or a
-development/production widget mismatch.
+development/production widget mismatch. Apply the smallest fix, then return to the linked setup
+page for the complete workflow.
 
 ## `belgie CLI dependencies are required`
 

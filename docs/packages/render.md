@@ -37,10 +37,9 @@ export default function run() {
 }
 ```
 
-The result is a complete HTML document with a root element and inline JavaScript, CSS, and supported
-assets. The built-in Pydantic AI and LangChain integrations replace the render request with this
-HTML before returning the tool result. A normal `Runtime()` call without the Belgie agent session
-does not provide that side channel.
+The agent integrations turn the render request into a complete HTML document with a root element and
+inline JavaScript, CSS, and supported assets before returning the tool result. A normal `Runtime()`
+call without the Belgie agent session does not provide that side channel.
 
 ## Options and source analysis
 
@@ -74,7 +73,7 @@ const options = { [key]: <main>Not analyzable</main>, plugins: [] };
 options.widget = <main>Mutated</main>;
 ```
 
-These restrictions keep the browser graph and privileged plugin graph explicit. They are source
+These rules keep the browser graph and privileged plugin graph explicit. They are source
 requirements, not TypeScript typing requirements.
 
 ## Imports and browser expressions

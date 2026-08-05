@@ -1,11 +1,11 @@
 # Environment
 
-Use `Environment` when a group of scripts or commands shares JavaScript dependencies, a workspace,
-or a lockfile. It resolves npm, JSR, URL, and local file dependencies through the embedded Deno
+Use `Environment` when several scripts or commands need the same JavaScript dependencies, workspace,
+or lockfile. It resolves npm, JSR, URL, and local file dependencies through the embedded Deno
 environment.
 
 Choose an `Environment` when Python should own dependency declarations. For a one-off script, inline
-Deno imports in [`Script`](script.md) are simpler; for a package binary, combine the environment with
+Deno imports in [`Script`](script.md) are enough. For a package binary, combine the environment with
 [`Command`](command.md).
 
 ## Declare dependencies
