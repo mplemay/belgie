@@ -49,11 +49,13 @@ source = { editable = "../../../" }
 
 [package.optional-dependencies]
 pydantic-ai = [
+    { name = "anyio" },
     { name = "pydantic-ai-slim", extra = ["openai"] },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "anyio", marker = "extra == 'pydantic-ai'", specifier = ">=4" },
     { name = "langchain", marker = "extra == 'langchain'", specifier = ">=1,<2" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2.0.0rc1" },
     { name = "mcp-types", marker = "extra == 'mcp'", specifier = ">=2.0.0rc1" },
@@ -84,6 +86,10 @@ dev = [
     { name = "typer", specifier = ">=0.20,<1" },
     { name = "uvloop", marker = "sys_platform != 'win32'", specifier = ">=0.22.1" },
     { name = "zizmor", specifier = ">=1.25.2" },
+]
+docs = [
+    { name = "mkdocs", specifier = ">=1.6.1" },
+    { name = "mkdocs-material", specifier = ">=9.7.0" },
 ]
 
 [[package]]

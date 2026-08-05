@@ -1,8 +1,8 @@
 # Pydantic AI
 
-Use `BelgieCapability` to add a sandboxed `run_code` tool to a Pydantic AI agent. The capability
-manages one Belgie runtime session for each agent invocation and converts script failures into
-framework retries.
+Use `BelgieSandbox` to add a restricted `run_typescript` tool to a Pydantic AI agent. The tool executes complete
+JavaScript, TypeScript, or TSX modules in an embedded Deno runtime without running model-authored code in the Python
+application process.
 
 ## Install
 
@@ -12,111 +12,182 @@ uv add "belgie[pydantic-ai]"
 
 Configure the model provider separately using the [Pydantic AI documentation](https://ai.pydantic.dev/).
 
-## Add the capability
+## Add the sandbox
 
 ```python {title="agent.py"}
 from pydantic_ai import Agent
 
-from belgie.pydantic_ai import BelgieCapability
+from belgie.pydantic_ai import BelgieSandbox
 
 agent = Agent(
     "openai:gpt-5",
-    instructions=(
-        "Use run_code when a JavaScript or TypeScript package makes the task easier. "
-        "Return the result of the exported function."
-    ),
-    capabilities=[BelgieCapability()],
+    capabilities=[BelgieSandbox()],
 )
 
-result = agent.run_sync("Use TypeScript to convert 'hello-world' to camelCase.")
+result = agent.run_sync("Use TypeScript to group ['ant', 'ape', 'bear'] by first letter.")
 print(result.output)
 ```
 
-The tool description tells the model to export a callable function, use Deno-style imports, and
-return JSON-compatible values. Keep task-specific instructions short and put integration setup in
-the capability configuration.
+The model writes a complete module and exports either a default function or a named `run` function:
 
-Use `await agent.run(...)` in an asynchronous application. `run_sync(...)` is convenient for
-blocking scripts and command-line programs.
+```typescript
+export default function run(): Record<string, string[]> {
+  const words = ["ant", "ape", "bear"];
+  return Object.groupBy(words, (word) => word[0]);
+}
+```
 
-## Configure retries and timeouts
+The exported function receives no arguments and must return JSON-serializable data. Console output is not captured.
 
-Use `max_retries` for malformed or failed script calls and `timeout` for scripts that may run too
-long:
+## Default isolation
+
+Each agent run receives a separate temporary Belgie environment and Deno runtime. The runtime starts lazily on the
+first `run_typescript` call, so an unused capability does not start a worker.
+
+By default:
+
+- npm, JSR, URL, and relative imports are disabled;
+- runtime network access, including `fetch`, is denied;
+- host files, environment variables, subprocesses, writes, FFI, and system information are denied;
+- reads are limited to the temporary workspace;
+- each call has a 30-second deadline and a 50 KiB JSON output limit;
+- V8's old-generation heap is limited to 128 MiB.
+
+Belgie is an embedded language sandbox, not a container or virtual machine. Use an OS- or cloud-isolated sandbox when
+untrusted code requires a separate kernel, filesystem, or network namespace.
+
+## Configure packages, network, and rendering
+
+Package imports, network access, and rendering are separate options. Rendering also enables package resolution because
+`@belgie/render` must be installed:
 
 ```python
-from belgie.pydantic_ai import BelgieCapability
+from belgie.pydantic_ai import BelgieSandbox
 
-capability = BelgieCapability(
-    max_retries=2,
-    timeout=30,
-    instructions="Prefer fetch for HTTP APIs and return compact JSON.",
+capability = BelgieSandbox(
+    allow_package_imports=True,
+    allow_network=True,
+    enable_rendering=True,
 )
 ```
 
-A timeout raises a framework retry result with the timeout message. Belgie runtime errors are also
-returned as model-visible retry information so the model can correct its script.
+`allow_package_imports=True` permits npm, JSR, and URL module resolution, but does not enable runtime `fetch`.
+`allow_network=True` grants unrestricted runtime network access without granting host files or subprocesses.
 
-## Configure permissions
+Rendering runs on a separate privileged renderer side channel. Model scripts remain workspace-restricted; use
+`plugins: []` for untrusted agents because model-selected renderer plugins can write under the workspace and load
+native code from installed packages.
 
-Network access is denied by default. Allow only the hosts the agent needs through
-`RuntimeOptions`:
+```tsx
+import { render } from "@belgie/render";
+
+function Widget() {
+  return <main>Hello from Belgie</main>;
+}
+
+export default function run() {
+  return render({ widget: <Widget />, plugins: [] });
+}
+```
+
+The returned HTML is ordinary tool data. Raise `max_output_bytes` when the rendered document is larger than the
+default limit.
+
+## Reuse a session
+
+An owned runtime lasts for one agent run. Multiple calls in that run share the same Deno worker, while separate or
+concurrent runs receive separate workers and workspaces.
+
+For explicit reuse across runs, create and enter a session yourself:
 
 ```python
-from belgie import RuntimeOptions, RuntimePermissions
-from belgie.pydantic_ai import BelgieCapability
+import asyncio
 
-runtime_options = RuntimeOptions(
-    permissions=RuntimePermissions(allow_net=["api.example.com"]),
+from pydantic_ai import Agent
+
+from belgie.pydantic_ai import BelgieSandbox, BelgieSandboxSession
+
+
+async def main() -> None:
+    async with BelgieSandboxSession(allow_package_imports=True) as session:
+        agent = Agent(
+            "openai:gpt-5",
+            capabilities=[BelgieSandbox(session=session)],
+        )
+        await agent.run("Run a TypeScript transform.")
+        await agent.run("Run another transform in the same Deno worker.")
+
+
+asyncio.run(main())
+```
+
+An injected session must already be open. The capability does not enter or close it, and one session must not be used
+by overlapping runs because runtime-global state is shared.
+
+For a caller-configured permission profile, create a `belgie.Runtime` and pass it as
+`BelgieSandboxSession(runtime=...)`. The session enters and exits that runtime without changing its options. Custom
+runtimes do not provide the rendering side channel.
+
+## Deferred loading and composition
+
+Set `defer_loading=True` to hide the capability until the model explicitly loads it:
+
+```python
+BelgieSandbox(defer_loading=True)
+```
+
+The default deferred capability ID is `belgie_sandbox`; pass a stable `id` when several deferred capabilities are
+present. The capability is additive: existing agent tools remain available alongside `run_typescript`, while code
+running in the Deno sandbox cannot call those agent tools.
+
+## Timeouts, output limits, and errors
+
+`timeout` bounds each module execution. A timeout cancels and drains the script task before returning a retry prompt to
+the model. Parent-run cancellation is preserved and owned cleanup is shielded from cancellation.
+
+Results are serialized as compact JSON and measured in UTF-8 bytes. Results over `max_output_bytes` become a
+`ModelRetry` asking the model for a smaller result; they are not silently truncated. Script, module, permission,
+JavaScript, timeout, and invalid-JSON failures become `ModelRetry`. Missing Belgie, runtime startup failures, unopened
+sessions, and lifecycle misuse raise typed errors:
+
+- `BelgieSandboxError`
+- `BelgieSandboxExecutionError`
+- `BelgieSandboxTimeoutError`
+- `BelgieSandboxUnavailableError`
+
+## Configuration
+
+```python
+BelgieSandbox(
+    allow_package_imports=False,
+    allow_network=False,
+    enable_rendering=False,
+    max_old_generation_size_mb=128,
+    timeout=30.0,
+    max_output_bytes=50 * 1024,
+    max_retries=3,
+    session=None,
+    instructions=None,
 )
-
-capability = BelgieCapability(runtime_options=runtime_options)
 ```
 
-Keep the permission list narrow. The runtime configuration controls the embedded Deno process; it
-does not decide which prompts, packages, or host-side tools the application supplies.
+Set `max_old_generation_size_mb=None` to leave the V8 limit unset. Set `instructions=""` to suppress the built-in
+capability instructions, or pass a string to replace them. Owned-runtime settings cannot be combined with an injected
+session; configure those options on the session instead. `timeout`, `max_output_bytes`, and `max_retries` still apply
+to an injected session.
 
-## Use a project environment
+## Limitations
 
-Pass an `Environment` when the agent should use named dependencies or a project workspace:
-
-```python
-from belgie import Environment
-from belgie.pydantic_ai import BelgieCapability
-
-environment = Environment({"std_path": "jsr:@std/path@^1"})
-capability = BelgieCapability(environment=environment)
-```
-
-The capability enters and closes the environment for each agent invocation. If you need to own the
-full runtime lifecycle, pass `runtime` instead. Do not pass both `runtime` and `environment` or
-`runtime_options`.
-
-## Deferred loading
-
-Set `defer_loading=True` when the agent should discover Belgie only when it needs JavaScript:
-
-```python
-from belgie.pydantic_ai import BelgieCapability
-
-capability = BelgieCapability(
-    defer_loading=True,
-    id="belgie-js",
-)
-```
-
-Pydantic AI exposes a loader tool first. After the model loads the capability, `run_code` becomes
-available. Use a stable Pydantic AI `id` when several deferred capabilities are present. The
-`id` is the loader key; `capability_id` is Belgie's internal tool metadata field and should not be
-used as a substitute here.
-
-## Render HTML
-
-Return `render(...)` from a TSX script to produce a complete HTML document. The render pass is
-host-mediated and does not expand the script worker's permissions. See [@belgie/render](../packages/render.md).
+- The capability requires asyncio; Belgie's async Python bindings do not run under Trio.
+- Durable execution capabilities are rejected because a live Deno worker cannot cross activity, task, workflow, or
+  replay boundaries.
+- Streaming logs and incremental results are not exposed.
+- Host-file module imports and direct filesystem tools are outside this capability's contract.
+- Native npm add-ons may need permissions beyond the package-import profile; review them before using a
+  caller-configured runtime.
 
 ## See also
 
 - [AI agent overview](overview.md)
-- [Pydantic AI capabilities](https://ai.pydantic.dev/capabilities/)
 - [Runtime](../runtime.md)
+- [@belgie/render](../packages/render.md)

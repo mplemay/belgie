@@ -1,7 +1,7 @@
 [project]
 name = "pydantic-ai-example"
 version = "0.1.0"
-description = "OpenAI pydantic-ai capability example for belgie"
+description = "OpenAI Pydantic AI Belgie Sandbox example"
 readme = "readme.md"
 authors = [
     { name = "Matt LeMay", email = "mplemay@users.noreply.github.com" }

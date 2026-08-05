@@ -1,149 +1,167 @@
 from __future__ import annotations
 
-from contextlib import AsyncExitStack
-from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, Final, Self, cast
+import json
+from typing import TYPE_CHECKING, Annotated, Final, Self
 
-from pydantic_ai import AbstractToolset, RunContext, ToolDefinition, WrapperToolset
-from pydantic_ai.exceptions import ModelRetry, UserError
+from pydantic import Field
+from pydantic_ai.exceptions import ModelRetry
 from pydantic_ai.messages import ToolReturn
 from pydantic_ai.tools import AgentDepsT
-from pydantic_ai.toolsets._deferred_capability_loader import LOAD_CAPABILITY_TOOL_NAME
-from pydantic_ai.toolsets.abstract import SchemaValidatorProt, ToolsetTool
+from pydantic_ai.toolsets import FunctionToolset
 
-from belgie.agent import (
-    RUN_CODE_JSON_SCHEMA,
-    RUN_CODE_METADATA,
-    RUN_CODE_TOOL_NAME,
-    BelgieOptions,
-    BelgieRuntimeSession,
-    RunCodeInput,
-    format_script_failure,
+from belgie.pydantic_ai._session import (
+    DEFAULT_MAX_OLD_GENERATION_SIZE_MB,
+    DEFAULT_TIMEOUT,
+    BelgieSandboxExecutionError,
+    BelgieSandboxSession,
+    BelgieSandboxTimeoutError,
 )
-from belgie.agent._run_code import (
-    RUN_CODE_ARGS_VALIDATOR as _RUN_CODE_ARGS_VALIDATOR,
-    resolved_description,
-)
-from belgie.errors import BelgieError
 
 if TYPE_CHECKING:
-    from belgie.agent._runtime import AsyncExitArgs
+    from pydantic_ai import RunContext
+    from pydantic_ai.toolsets import AbstractToolset
 
-RUN_CODE_ARGS_VALIDATOR: Final[SchemaValidatorProt] = cast(
-    "SchemaValidatorProt",
-    _RUN_CODE_ARGS_VALIDATOR,
-)
-UNSUPPORTED_TOOL_MESSAGE: Final[str] = (
-    "Belgie capability only supports the {supported_tool_name!r} tool, not {requested_tool_name!r}."
-)
-TOOLSET_NOT_ENTERED_MESSAGE: Final[str] = "BelgieToolset must be entered before calling tools."
+RUN_TYPESCRIPT_TOOL_NAME: Final[str] = "run_typescript"
+DEFAULT_MAX_OUTPUT_BYTES: Final[int] = 50 * 1024
 
-
-@dataclass(kw_only=True)
-class _BelgieOptions(BelgieOptions):
-    def validate(self) -> None:
-        try:
-            super().validate()
-        except ValueError as error:
-            raise UserError(str(error)) from error
+TOOL_DESCRIPTION: Final[str] = """\
+Run a complete JavaScript, TypeScript, or TSX module in Belgie's embedded Deno sandbox.
+Export a callable function, preferably `export default async function run() { ... }` or \
+`export function run() { ... }`. The exported function is called without arguments. Return \
+the JSON-serializable value you want sent back; console output is not captured.
+This is Deno, not Node.js. The owned runtime denies host files, environment variables, subprocesses, \
+FFI, and system information. Remote package imports and `fetch` are unavailable unless the host \
+explicitly enables their Belgie Sandbox options. Caller-supplied runtimes define their own permissions. \
+External agent tools are not callable from inside this sandbox.
+"""
 
 
-@dataclass(kw_only=True)
-class BelgieToolset(_BelgieOptions, WrapperToolset[AgentDepsT]):
-    _exit_stack: AsyncExitStack | None = field(default=None, init=False, repr=False)
-    _session: BelgieRuntimeSession | None = field(default=None, init=False, repr=False)
-
-    def __post_init__(self) -> None:
-        self.validate()
+class BelgieSandboxToolset(FunctionToolset[AgentDepsT]):
+    def __init__(  # noqa: PLR0913
+        self,
+        *,
+        allow_package_imports: bool,
+        allow_network: bool,
+        enable_rendering: bool,
+        max_old_generation_size_mb: int | None,
+        timeout: float,
+        max_output_bytes: int,
+        max_retries: int,
+        toolset_id: str,
+        session: BelgieSandboxSession | None = None,
+        _run_scoped: bool = False,
+    ) -> None:
+        super().__init__(max_retries=max_retries, sequential=True, id=toolset_id)
+        self._allow_package_imports = allow_package_imports
+        self._allow_network = allow_network
+        self._enable_rendering = enable_rendering
+        self._max_old_generation_size_mb = max_old_generation_size_mb
+        self._timeout = timeout
+        self._max_output_bytes = max_output_bytes
+        self._external_session = session
+        self._session: BelgieSandboxSession | None = None
+        self._run_scoped = _run_scoped
+        self._entered = False
+        self.add_function(
+            self.run_typescript,
+            takes_ctx=False,
+            name=RUN_TYPESCRIPT_TOOL_NAME,
+            description=TOOL_DESCRIPTION,
+            metadata={"code_arg_name": "code", "code_arg_language": "typescript"},
+            sequential=True,
+        )
 
     async def for_run(self, ctx: RunContext[AgentDepsT]) -> AbstractToolset[AgentDepsT]:
-        new_wrapped = await self.wrapped.for_run(ctx)
-        if new_wrapped is self.wrapped:
-            return self
-        return replace(self, wrapped=new_wrapped)
-
-    async def for_run_step(self, ctx: RunContext[AgentDepsT]) -> AbstractToolset[AgentDepsT]:
-        new_wrapped = await self.wrapped.for_run_step(ctx)
-        if new_wrapped is self.wrapped:
-            return self
-        return replace(self, wrapped=new_wrapped)
-
-    async def get_instructions(self, ctx: RunContext[AgentDepsT]) -> None:  # noqa: ARG002
-        # Wrapped toolset instructions must not leak into the system prompt.
-        return None
+        del ctx
+        return BelgieSandboxToolset[AgentDepsT](
+            allow_package_imports=self._allow_package_imports,
+            allow_network=self._allow_network,
+            enable_rendering=self._enable_rendering,
+            max_old_generation_size_mb=self._max_old_generation_size_mb,
+            timeout=self._timeout,
+            max_output_bytes=self._max_output_bytes,
+            max_retries=self.max_retries if self.max_retries is not None else 0,
+            toolset_id=self.id or "belgie_sandbox",
+            session=self._external_session,
+            _run_scoped=True,
+        )
 
     async def __aenter__(self) -> Self:
-        if self._exit_stack is not None:
+        if not self._run_scoped:
             return self
-
-        stack = AsyncExitStack()
-        try:
-            await stack.enter_async_context(self.wrapped)
-            session = BelgieRuntimeSession(**self.options_kwargs())
-            await stack.enter_async_context(session)
-            self._session = session
-            self._exit_stack = stack
-        except BaseException:
-            await stack.aclose()
-            raise
+        self._entered = True
+        if self._external_session is not None:
+            if not self._external_session.is_open:
+                self._entered = False
+                message = (
+                    "The injected Belgie sandbox session is not open. "
+                    "Enter it with `async with session:` before running the agent."
+                )
+                raise BelgieSandboxExecutionError(message)
+            self._session = self._external_session
         return self
 
-    async def __aexit__(self, *args: object) -> bool | None:
-        stack = self._exit_stack
-        self._exit_stack = None
+    async def __aexit__(self, *args: object) -> None:
+        session = self._session
+        if session is not None and self._external_session is None:
+            await session.close()
         self._session = None
-        if stack is None:
-            return None
-        return await stack.__aexit__(*cast("AsyncExitArgs", args))
+        self._entered = False
 
-    async def get_tools(self, ctx: RunContext[AgentDepsT]) -> dict[str, ToolsetTool[AgentDepsT]]:
-        wrapped_tools = await self.wrapped.get_tools(ctx)
-        tools = {name: tool for name, tool in wrapped_tools.items() if name == LOAD_CAPABILITY_TOOL_NAME}
-        tools[RUN_CODE_TOOL_NAME] = ToolsetTool(
-            toolset=self,
-            tool_def=ToolDefinition(
-                name=RUN_CODE_TOOL_NAME,
-                description=resolved_description(self),
-                parameters_json_schema=RUN_CODE_JSON_SCHEMA,
-                metadata=dict(RUN_CODE_METADATA),
-                sequential=True,
-                timeout=self.timeout,
-                defer_loading=self.defer_loading,
-                capability_id=self.capability_id if self.defer_loading else None,
-            ),
-            max_retries=self.max_retries,
-            args_validator=RUN_CODE_ARGS_VALIDATOR,
+    async def _require_session(self) -> BelgieSandboxSession:
+        if not self._entered:
+            message = "The Belgie sandbox toolset is not active in an agent run."
+            raise BelgieSandboxExecutionError(message)
+        if self._session is not None:
+            return self._session
+        session = BelgieSandboxSession(
+            allow_package_imports=self._allow_package_imports,
+            allow_network=self._allow_network,
+            enable_rendering=self._enable_rendering,
+            max_old_generation_size_mb=self._max_old_generation_size_mb,
         )
-        return tools
+        await session.__aenter__()
+        self._session = session
+        return session
 
-    async def call_tool(
+    async def run_typescript(
         self,
-        name: str,
-        tool_args: dict[str, Any],
-        ctx: RunContext[AgentDepsT],
-        tool: ToolsetTool[AgentDepsT],
-    ) -> Any:  # noqa: ANN401
-        if name == LOAD_CAPABILITY_TOOL_NAME:
-            return await self.wrapped.call_tool(name, tool_args, ctx, tool)
-        if name != RUN_CODE_TOOL_NAME:
-            raise UserError(
-                UNSUPPORTED_TOOL_MESSAGE.format(
-                    supported_tool_name=RUN_CODE_TOOL_NAME,
-                    requested_tool_name=name,
-                ),
-            )
-        if self._session is None:
-            raise UserError(TOOLSET_NOT_ENTERED_MESSAGE)
-
+        code: Annotated[
+            str,
+            Field(description="Complete JavaScript, TypeScript, or TSX `belgie.Script` module source."),
+        ],
+    ) -> ToolReturn:
+        session = await self._require_session()
         try:
-            parsed = tool_args if isinstance(tool_args, RunCodeInput) else RunCodeInput.model_validate(tool_args)
-            return_value = await self._session.run_script(parsed.code)
-        except BelgieError as error:
-            raise ModelRetry(format_script_failure(error)) from error
-        except TimeoutError as error:
+            result = await session.run_script(code, timeout=self._timeout)
+        except (BelgieSandboxExecutionError, BelgieSandboxTimeoutError) as error:
             raise ModelRetry(str(error)) from error
-
+        try:
+            encoded = json.dumps(result, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode()
+        except (TypeError, ValueError) as error:
+            message = f"Belgie script returned an invalid JSON value: {error}"
+            raise ModelRetry(message) from error
+        output_bytes = len(encoded)
+        if output_bytes > self._max_output_bytes:
+            message = (
+                f"Belgie script returned {output_bytes} UTF-8 bytes, exceeding the "
+                f"{self._max_output_bytes}-byte limit. Return a smaller value or summary."
+            )
+            raise ModelRetry(message)
         return ToolReturn(
-            return_value=return_value,
-            metadata={"belgie": True, "code_language": RUN_CODE_METADATA["code_arg_language"]},
+            return_value=result,
+            metadata={
+                "belgie_sandbox": True,
+                "code_language": "typescript",
+                "output_bytes": output_bytes,
+            },
         )
+
+
+__all__: tuple[str, ...] = (
+    "DEFAULT_MAX_OLD_GENERATION_SIZE_MB",
+    "DEFAULT_MAX_OUTPUT_BYTES",
+    "DEFAULT_TIMEOUT",
+    "RUN_TYPESCRIPT_TOOL_NAME",
+    "BelgieSandboxToolset",
+)
