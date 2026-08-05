@@ -184,7 +184,7 @@ def run(  # noqa: PLR0913, PLR0917
     )
 
 
-def _run_typescript(
+def _run_generate(
     *,
     target: str | None,
     output: Path | None,
@@ -208,9 +208,15 @@ def _run_typescript(
 
 
 @app.command()
-def typescript(
-    target: Annotated[str | None, typer.Argument(help="Python target as module:attribute")] = None,
-    output: Annotated[Path | None, typer.Option("-o", "--output", help="Generated TypeScript output path")] = None,
+def generate(
+    target: Annotated[
+        str | None,
+        typer.Argument(help="Python MCPServer or BelgieExtension target as module:attribute"),
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option("-o", "--output", help="Generated TypeScript caller path"),
+    ] = None,
     project: ProjectDir = None,
     check: Annotated[
         bool,
@@ -221,24 +227,7 @@ def typescript(
         typer.Option("--frozen/--no-frozen", help="Require and use the existing deno.lock"),
     ] = True,  # noqa: FBT002
 ) -> None:
-    _run_typescript(target=target, output=output, project=project, check=check, frozen=frozen)
-
-
-@app.command()
-def types(
-    target: Annotated[str | None, typer.Argument(help="Python target as module:attribute")] = None,
-    output: Annotated[Path | None, typer.Option("-o", "--output", help="Generated TypeScript output path")] = None,
-    project: ProjectDir = None,
-    check: Annotated[
-        bool,
-        typer.Option("--check", help="Fail when the generated output is stale or missing"),
-    ] = False,  # noqa: FBT002
-    frozen: Annotated[
-        bool,
-        typer.Option("--frozen/--no-frozen", help="Require and use the existing deno.lock"),
-    ] = True,  # noqa: FBT002
-) -> None:
-    _run_typescript(target=target, output=output, project=project, check=check, frozen=frozen)
+    _run_generate(target=target, output=output, project=project, check=check, frozen=frozen)
 
 
 def main(argv: Sequence[str] | None = None) -> None:

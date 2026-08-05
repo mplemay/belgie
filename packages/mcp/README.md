@@ -34,11 +34,10 @@ For a local Belgie Python project, configure its `MCPServer` or `BelgieExtension
 without starting HTTP, SSE, Vite, or tool bodies:
 
 ```sh
-uv run belgie typescript
+uv run belgie generate
 ```
 
-The `uv run belgie types` alias is also available. The generated module uses the same schema renderer as the remote
-CLI below.
+The generated module uses the same schema renderer as the remote CLI below.
 
 For a remote streamable HTTP MCP endpoint, run:
 

@@ -55,7 +55,7 @@ await app.sendMessage({ role: "user", content: [{ type: "text", text: "Hello" }]
 Regenerate the committed named tool module from the local Python server:
 
 ```bash
-uv run belgie typescript
+uv run belgie generate
 ```
 
 The Python tool keeps its content-returning signature:

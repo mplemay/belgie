@@ -128,8 +128,8 @@ server = MCPServer(name="generated-demo", extensions=[extension])
 
     project = load_project(tmp_path)
     lock_project(project)
-    first = runner.invoke(app, ["typescript", "-C", str(tmp_path)])
-    second = runner.invoke(app, ["types", "-C", str(tmp_path), "--check"])
+    first = runner.invoke(app, ["generate", "-C", str(tmp_path)])
+    second = runner.invoke(app, ["generate", "-C", str(tmp_path), "--check"])
 
     assert first.exit_code == 0, first.output
     assert second.exit_code == 0, second.output

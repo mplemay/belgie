@@ -56,7 +56,7 @@ await app.sendMessage({ role: "user", content: [{ type: "text", text: "Hello" }]
 Generate and commit the named tool module from the local Python server:
 
 ```bash
-uv run belgie typescript
+uv run belgie generate
 ```
 
 Widgets import one generated camelCase function per tool. Tool names, required inputs, argument shapes, and structured
@@ -201,7 +201,7 @@ if (response.error instanceof McpToolError) {
 Check the committed tool module for server drift in CI without writing it:
 
 ```bash
-uv run belgie typescript --check
+uv run belgie generate --check
 ```
 
 The schema-only generator does not need a running HTTP endpoint, OAuth, or Vite startup. The generated TypeScript file

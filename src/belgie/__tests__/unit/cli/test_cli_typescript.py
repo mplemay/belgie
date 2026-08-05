@@ -143,7 +143,7 @@ def test_typescript_check_rejects_stale_output(tmp_path: Path, monkeypatch: pyte
     assert output.read_text(encoding="utf-8") == "old\n"
 
 
-def test_typescript_commands_use_configured_target_and_alias(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_generate_command_uses_configured_target_and_overrides(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     write_project(tmp_path)
     received: list[tuple[str | None, Path | None, bool, bool]] = []
 
@@ -160,12 +160,11 @@ def test_typescript_commands_use_configured_target_and_alias(tmp_path: Path, mon
 
     monkeypatch.setattr("belgie.cli.__main__.generate_typescript", fake_generate)
 
-    typescript_result = runner.invoke(app, ["typescript", "-C", str(tmp_path)])
-    types_result = runner.invoke(app, ["types", "-C", str(tmp_path), "--check", "--no-frozen"])
+    generate_result = runner.invoke(app, ["generate", "-C", str(tmp_path)])
     override_result = runner.invoke(
         app,
         [
-            "typescript",
+            "generate",
             "override:server",
             "-o",
             "override.ts",
@@ -174,12 +173,10 @@ def test_typescript_commands_use_configured_target_and_alias(tmp_path: Path, mon
         ],
     )
 
-    assert typescript_result.exit_code == 0, typescript_result.output
-    assert types_result.exit_code == 0, types_result.output
+    assert generate_result.exit_code == 0, generate_result.output
     assert override_result.exit_code == 0, override_result.output
     assert received == [
         (None, None, True, False),
-        (None, None, False, True),
         ("override:server", Path("override.ts"), True, False),
     ]
 
@@ -187,7 +184,7 @@ def test_typescript_commands_use_configured_target_and_alias(tmp_path: Path, mon
 def test_typescript_command_requires_configured_values(tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text('[project]\nname = "demo"\n', encoding="utf-8")
 
-    result = runner.invoke(app, ["typescript", "-C", str(tmp_path)])
+    result = runner.invoke(app, ["generate", "-C", str(tmp_path)])
 
     assert result.exit_code == 1
     assert isinstance(result.exception, ProjectError)

@@ -40,7 +40,7 @@ output = "src/mcp_app/views/widgets/tools.ts"
 as modules by default. Paths containing `..` and absolute paths are rejected.
 
 The optional `[tool.belgie.typescript]` table supplies the Python MCP target and generated output
-used by `belgie typescript` and its `types` alias.
+used by `belgie generate`.
 
 `minimum-dependency-age` matches Deno's policy for npm and JSR packages. Accept minutes (`120`), an
 ISO-8601 duration (`P7D`), a `YYYY-MM-DD` date, an RFC3339 timestamp, or `0` / `false` to disable.
@@ -58,7 +58,7 @@ command with `--minimum-dependency-age` / `--min-dep-age`.
 | `belgie update [ALIASES...]` | Update selected aliases or all aliases and write the lockfile. |
 | `belgie list` | Print the declared dependency aliases and specifiers. |
 | `belgie run COMMAND [ARGS...]` | Install the project and run an installed command. |
-| `belgie typescript [TARGET]` / `belgie types [TARGET]` | Generate typed MCP callers from a local Python target. |
+| `belgie generate [TARGET]` | Generate typed MCP callers from a local Python target. |
 | `belgie --version` | Print the installed Belgie version. |
 
 ## Add and lock a dependency
@@ -142,14 +142,14 @@ uv run belgie run --module vite build
 Configure a Python `MCPServer` or `BelgieExtension` and run the schema-only generator:
 
 ```bash
-uv run belgie typescript
-uv run belgie typescript --check
+uv run belgie generate
+uv run belgie generate --check
 ```
 
 Pass a target or output path to override project configuration:
 
 ```bash
-uv run belgie typescript mcp_app.__main__:mcp --output src/mcp-tools.ts
+uv run belgie generate mcp_app.__main__:mcp --output src/mcp-tools.ts
 ```
 
 The target is imported without starting Vite or executing tool functions. `--no-frozen` allows

@@ -129,8 +129,8 @@ For a local Python MCP project, configure the target and output in `pyproject.to
 from the registered server without starting an HTTP endpoint:
 
 ```bash
-uv run belgie typescript
-uv run belgie typescript --check
+uv run belgie generate
+uv run belgie generate --check
 ```
 
 The target may be an `MCPServer` or `BelgieExtension`; generation reads its registered schemas
