@@ -83,44 +83,45 @@ def parse_belgie_tool_config(document: dict[str, Any]) -> BelgieToolConfig:
         msg = "[tool.belgie] must be a table"
         raise PyprojectError(msg)
 
-    source = belgie.get("source")
-    if source is None:
-        source_path = DEFAULT_SOURCE
-    else:
-        if not isinstance(source, str) or not source.strip():
-            raise PyprojectError(EMPTY_SOURCE_PATH_ERROR if isinstance(source, str) else INVALID_SOURCE_PATH_ERROR)
-        source_path = Path(source)
-        if is_absolute_config_path(source):
-            raise PyprojectError(ABSOLUTE_SOURCE_PATH_ERROR)
-        if any(part == ".." for part in source_path.parts):
-            raise PyprojectError(PARENT_SOURCE_PATH_ERROR)
-
     module = belgie.get("module", DEFAULT_MODULE)
     if not isinstance(module, bool):
         raise PyprojectError(INVALID_MODULE_ERROR)
 
-    typescript_value = belgie.get("typescript")
-    if typescript_value is None:
-        typescript = TypeScriptConfig()
-    else:
-        if not isinstance(typescript_value, dict):
-            raise PyprojectError(INVALID_TYPESCRIPT_TABLE_ERROR)
-        target = typescript_value.get("target")
-        if target is not None and (not isinstance(target, str) or not target.strip()):
-            raise PyprojectError(INVALID_TYPESCRIPT_TARGET_ERROR)
-        output = typescript_value.get("output")
-        if output is not None and (not isinstance(output, str) or not output.strip()):
-            raise PyprojectError(INVALID_TYPESCRIPT_OUTPUT_ERROR)
-        typescript = TypeScriptConfig(
-            target=target,
-            output=Path(output) if output is not None else None,
-        )
-
     return BelgieToolConfig(
-        source=source_path,
+        source=_parse_source_path(belgie.get("source")),
         module=module,
         minimum_dependency_age=_parse_minimum_dependency_age(belgie.get("minimum-dependency-age")),
-        typescript=typescript,
+        typescript=_parse_typescript_config(belgie.get("typescript")),
+    )
+
+
+def _parse_source_path(source: object) -> Path:
+    if source is None:
+        return DEFAULT_SOURCE
+    if not isinstance(source, str) or not source.strip():
+        raise PyprojectError(EMPTY_SOURCE_PATH_ERROR if isinstance(source, str) else INVALID_SOURCE_PATH_ERROR)
+    source_path = Path(source)
+    if is_absolute_config_path(source):
+        raise PyprojectError(ABSOLUTE_SOURCE_PATH_ERROR)
+    if any(part == ".." for part in source_path.parts):
+        raise PyprojectError(PARENT_SOURCE_PATH_ERROR)
+    return source_path
+
+
+def _parse_typescript_config(value: object) -> TypeScriptConfig:
+    if value is None:
+        return TypeScriptConfig()
+    if not isinstance(value, dict):
+        raise PyprojectError(INVALID_TYPESCRIPT_TABLE_ERROR)
+    target = value.get("target")
+    if target is not None and (not isinstance(target, str) or not target.strip()):
+        raise PyprojectError(INVALID_TYPESCRIPT_TARGET_ERROR)
+    output = value.get("output")
+    if output is not None and (not isinstance(output, str) or not output.strip()):
+        raise PyprojectError(INVALID_TYPESCRIPT_OUTPUT_ERROR)
+    return TypeScriptConfig(
+        target=target,
+        output=Path(output) if output is not None else None,
     )
 
 
