@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, cast
 
@@ -20,6 +21,19 @@ from belgie.pydantic_ai._session import (
     DEFAULT_VITE_SYS_PERMISSIONS,
     package_name_from_specifier,
 )
+
+
+def _assert_isolated_render_paths(argv: Sequence[str], workspace: Path) -> Path:
+    assert argv[0] == "--widget"
+    assert argv[2] == "--out"
+    widget = Path(argv[1])
+    out = Path(argv[3])
+    assert widget.name == "widget.tsx"
+    assert out.name == "widget.html"
+    assert widget.parent == out.parent
+    assert widget.parent.parent == workspace
+    assert widget.parent.name.startswith("render-")
+    return widget.parent
 
 
 async def test_default_session_is_restricted_and_temporary(fake_belgie) -> None:
@@ -97,16 +111,7 @@ async def test_rendering_uses_side_channel_without_script_ffi(fake_belgie) -> No
         assert len(fake_belgie.command_calls) == 1
         command_name, argv = fake_belgie.command_calls[0]
         assert command_name == "@belgie/vite"
-        assert argv[0] == "--widget"
-        assert argv[2] == "--out"
-        widget_path = Path(argv[1])
-        out_path = Path(argv[3])
-        assert widget_path.name == "widget.tsx"
-        assert out_path.name == "widget.html"
-        assert widget_path.parent == out_path.parent
-        assert widget_path.parent.parent == workspace
-        assert widget_path.parent.name.startswith("render-")
-        assert not widget_path.parent.exists()
+        _assert_isolated_render_paths(argv, workspace)
         assert not any(workspace.glob("render-*"))
 
     assert all(runtime.exited for runtime in fake_belgie.runtimes)
@@ -128,14 +133,7 @@ async def test_concurrent_renders_use_isolated_paths(fake_belgie) -> None:
         render_dirs: list[Path] = []
         for command_name, argv in fake_belgie.command_calls:
             assert command_name == "@belgie/vite"
-            widget = Path(argv[1])
-            out = Path(argv[3])
-            assert widget.name == "widget.tsx"
-            assert out.name == "widget.html"
-            assert widget.parent == out.parent
-            assert widget.parent.parent == workspace
-            assert widget.parent.name.startswith("render-")
-            render_dirs.append(widget.parent)
+            render_dirs.append(_assert_isolated_render_paths(argv, workspace))
         assert render_dirs[0] != render_dirs[1]
         assert not any(workspace.glob("render-*"))
 

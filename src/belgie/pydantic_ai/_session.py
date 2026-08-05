@@ -4,13 +4,11 @@ import asyncio
 import importlib
 import math
 import re
-import shutil
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Final, Protocol, Self, runtime_checkable
-from uuid import uuid4
 
 import anyio
 
@@ -550,38 +548,40 @@ class BelgieSandboxSession:
             raise ValueError(message)
         belgie = _load_belgie()
         belgie_error = _load_belgie_error()
-        render_dir = workspace / f"render-{uuid4().hex}"
-        render_dir.mkdir()
-        widget_path = render_dir / "widget.tsx"
-        out_path = render_dir / "widget.html"
-        widget_path.write_text(source, encoding="utf-8")
-        argv = ["--widget", str(widget_path), "--out", str(out_path)]
-        for plugin in self._plugins:
-            argv.extend(("--plugins", plugin))
-        try:
-            task = asyncio.create_task(render_runtime(belgie.Command("@belgie/vite"))(*argv))
+        with TemporaryDirectory(
+            prefix="render-",
+            dir=workspace,
+            ignore_cleanup_errors=True,
+        ) as render_home:
+            render_dir = Path(render_home)
+            widget_path = render_dir / "widget.tsx"
+            out_path = render_dir / "widget.html"
+            widget_path.write_text(source, encoding="utf-8")
+            argv = ["--widget", str(widget_path), "--out", str(out_path)]
+            for plugin in self._plugins:
+                argv.extend(("--plugins", plugin))
             try:
-                await asyncio.wait_for(task, timeout=float(timeout))
-            except TimeoutError as error:
-                if not task.cancelled():
-                    message = f"Belgie widget rendering failed:\n{error}"
-                    raise BelgieSandboxExecutionError(message) from error
-                await _drain_cancelled_task(task)
-                message = f"Belgie widget rendering timed out after {timeout} seconds."
-                raise BelgieSandboxTimeoutError(message) from error
-            except asyncio.CancelledError:
-                await _drain_cancelled_task(task)
+                task = asyncio.create_task(render_runtime(belgie.Command("@belgie/vite"))(*argv))
+                try:
+                    await asyncio.wait_for(task, timeout=float(timeout))
+                except TimeoutError as error:
+                    if not task.cancelled():
+                        message = f"Belgie widget rendering failed:\n{error}"
+                        raise BelgieSandboxExecutionError(message) from error
+                    await _drain_cancelled_task(task)
+                    message = f"Belgie widget rendering timed out after {timeout} seconds."
+                    raise BelgieSandboxTimeoutError(message) from error
+                except asyncio.CancelledError:
+                    await _drain_cancelled_task(task)
+                    raise
+                return out_path.read_text(encoding="utf-8")
+            except BelgieSandboxTimeoutError:
                 raise
-            return out_path.read_text(encoding="utf-8")
-        except BelgieSandboxTimeoutError:
-            raise
-        except BelgieSandboxExecutionError:
-            raise
-        except belgie_error as error:
-            message = f"Belgie widget rendering failed:\n{error}"
-            raise BelgieSandboxExecutionError(message) from error
-        finally:
-            shutil.rmtree(render_dir, ignore_errors=True)
+            except BelgieSandboxExecutionError:
+                raise
+            except belgie_error as error:
+                message = f"Belgie widget rendering failed:\n{error}"
+                raise BelgieSandboxExecutionError(message) from error
 
     async def _run_script(
         self,
