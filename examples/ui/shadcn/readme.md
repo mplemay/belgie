@@ -52,12 +52,10 @@ await app.sendMessage({ role: "user", content: [{ type: "text", text: "Hello" }]
 
 ## Generate typed tools
 
-With the MCP server running, regenerate the committed named tool module:
+Regenerate the committed named tool module from the local Python server:
 
 ```bash
-uv run belgie run belgie-mcp generate \
-  http://127.0.0.1:3002/mcp \
-  --output src/shadcn/views/widgets/tools.ts
+uv run belgie typescript
 ```
 
 The Python tool keeps its content-returning signature:

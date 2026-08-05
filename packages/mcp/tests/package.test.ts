@@ -32,7 +32,9 @@ test("publishes the expected ESM export map and declarations", async () => {
   assert.equal(typeof mcp.useModal, "function");
   assert.equal(typeof mcp.requestModal, "function");
   assert.equal(typeof mcp.closeModal, "function");
-  assert.equal(typeof (await import("@belgie/mcp/codegen")).generateToolTypes, "function");
+  const codegen = await import("@belgie/mcp/codegen");
+  assert.equal(typeof codegen.generateToolTypes, "function");
+  assert.equal(typeof codegen.generateToolTypesFromSchemas, "function");
   assert.equal(typeof (await import("@belgie/mcp/internal")).createGeneratedTool, "function");
   assert.equal(typeof (await import("@belgie/mcp/vite")).belgie, "function");
 });

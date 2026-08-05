@@ -73,6 +73,13 @@ extension owns the `Path` registration; this package owns the browser bundle and
 Generate callers from the MCP server rather than hand-writing schemas:
 
 ```bash
+uv run belgie typescript
+```
+
+The Belgie CLI imports a local Python `MCPServer` or `BelgieExtension` in a schema-only context.
+For remote MCP servers, use the package CLI:
+
+```bash
 npx belgie-mcp generate https://example.com/mcp --output src/mcp-tools.ts
 ```
 

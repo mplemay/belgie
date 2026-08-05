@@ -70,8 +70,10 @@ export default function GetTime() {
 }
 ```
 
-Run `npx belgie-mcp generate` against the running endpoint when the tool schema changes. See
-[@belgie/mcp](../packages/mcp.md) for authentication and `--check` options.
+Run `uv run belgie typescript` when the local Python tool schema changes. It imports the configured
+server in a schema-only context, so no endpoint or Vite process is required. Use `npx belgie-mcp
+generate` for remote endpoints; see [@belgie/mcp](../packages/mcp.md) for authentication and
+`--check` options.
 
 ## Production build
 

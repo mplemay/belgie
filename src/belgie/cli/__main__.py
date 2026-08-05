@@ -31,6 +31,7 @@ from belgie.cli._operations import (  # noqa: E402
     update_project,
 )
 from belgie.cli._project import ProjectError, discover_project  # noqa: E402
+from belgie.cli._typescript import generate_typescript  # noqa: E402
 from belgie.errors import BelgieRuntimeError  # noqa: E402
 
 ProjectDir = Annotated[
@@ -181,6 +182,63 @@ def run(  # noqa: PLR0913, PLR0917
         module=module,
         minimum_dependency_age=minimum_dependency_age,
     )
+
+
+def _run_typescript(
+    *,
+    target: str | None,
+    output: Path | None,
+    project: Path | None,
+    check: bool,
+    frozen: bool,
+) -> None:
+    discovered = discover_project(project=project)
+    result = generate_typescript(
+        discovered,
+        target=target,
+        output=output,
+        frozen=frozen,
+        check=check,
+    )
+    if check:
+        typer.echo(f"TypeScript is current: {result.path}")
+        return
+    status = "Generated" if result.changed else "Unchanged"
+    typer.echo(f"{status} {result.tools} TypeScript tool types: {result.path}")
+
+
+@app.command()
+def typescript(
+    target: Annotated[str | None, typer.Argument(help="Python target as module:attribute")] = None,
+    output: Annotated[Path | None, typer.Option("-o", "--output", help="Generated TypeScript output path")] = None,
+    project: ProjectDir = None,
+    check: Annotated[
+        bool,
+        typer.Option("--check", help="Fail when the generated output is stale or missing"),
+    ] = False,  # noqa: FBT002
+    frozen: Annotated[
+        bool,
+        typer.Option("--frozen/--no-frozen", help="Require and use the existing deno.lock"),
+    ] = True,  # noqa: FBT002
+) -> None:
+    _run_typescript(target=target, output=output, project=project, check=check, frozen=frozen)
+
+
+@app.command()
+def types(
+    target: Annotated[str | None, typer.Argument(help="Python target as module:attribute")] = None,
+    output: Annotated[Path | None, typer.Option("-o", "--output", help="Generated TypeScript output path")] = None,
+    project: ProjectDir = None,
+    check: Annotated[
+        bool,
+        typer.Option("--check", help="Fail when the generated output is stale or missing"),
+    ] = False,  # noqa: FBT002
+    frozen: Annotated[
+        bool,
+        typer.Option("--frozen/--no-frozen", help="Require and use the existing deno.lock"),
+    ] = True,  # noqa: FBT002
+) -> None:
+    _run_typescript(target=target, output=output, project=project, check=check, frozen=frozen)
 
 
 def main(argv: Sequence[str] | None = None) -> None:

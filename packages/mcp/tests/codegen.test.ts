@@ -14,7 +14,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import express from "express";
 
-import { generateToolTypes } from "../src/codegen.ts";
+import { generateToolTypes, generateToolTypesFromSchemas } from "../src/codegen.ts";
 
 const SCHEMA_TOOLS = [
   {
@@ -448,6 +448,26 @@ test("generates deterministic types from every tools/list page", async () => {
   } finally {
     await server.close();
   }
+});
+
+test("generates the same types directly from schemas", async () => {
+  const generated = generateToolTypesFromSchemas([...SCHEMA_TOOLS].reverse());
+  const golden = await readFile(new URL("fixtures/codegen.golden.ts", import.meta.url), "utf8");
+  assert.equal(generated, golden);
+});
+
+test("treats a null output schema as a raw tool", () => {
+  const generated = generateToolTypesFromSchemas([
+    {
+      inputSchema: { properties: {}, type: "object" },
+      name: "raw-tool",
+      outputSchema: null,
+    },
+  ]);
+
+  assert.match(generated, /import type \{ RawToolResult \} from "@belgie\/mcp";/u);
+  assert.match(generated, /export type RawToolOutput = RawToolResult;/u);
+  assert.match(generated, /export const rawTool = createGeneratedRawTool<RawToolInput>\(/u);
 });
 
 test("declines standalone SSE while forwarding resumptions", async () => {

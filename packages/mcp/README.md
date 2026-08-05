@@ -30,7 +30,17 @@ The package is ESM-only and requires Node.js 22 or newer.
 
 ## Generate typed tool callers
 
-Run the CLI against a streamable HTTP MCP endpoint:
+For a local Belgie Python project, configure its `MCPServer` or `BelgieExtension` in `pyproject.toml` and generate
+without starting HTTP, SSE, Vite, or tool bodies:
+
+```sh
+uv run belgie typescript
+```
+
+The `uv run belgie types` alias is also available. The generated module uses the same schema renderer as the remote
+CLI below.
+
+For a remote streamable HTTP MCP endpoint, run:
 
 ```sh
 npx belgie-mcp generate https://example.com/mcp --output src/mcp-tools.ts

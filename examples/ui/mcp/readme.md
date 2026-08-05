@@ -53,12 +53,10 @@ await app.sendMessage({ role: "user", content: [{ type: "text", text: "Hello" }]
 
 ## Generate typed tools
 
-With the MCP server running, explicitly generate and commit the named tool module:
+Generate and commit the named tool module from the local Python server:
 
 ```bash
-uv run belgie run belgie-mcp generate \
-  http://127.0.0.1:3001/mcp \
-  --output src/mcp_app/views/widgets/tools.ts
+uv run belgie typescript
 ```
 
 Widgets import one generated camelCase function per tool. Tool names, required inputs, argument shapes, and structured
@@ -203,16 +201,11 @@ if (response.error instanceof McpToolError) {
 Check the committed tool module for server drift in CI without writing it:
 
 ```bash
-uv run belgie run belgie-mcp generate \
-  http://127.0.0.1:3001/mcp \
-  --output src/mcp_app/views/widgets/tools.ts \
-  --check \
-  --no-open
+uv run belgie typescript --check
 ```
 
-Use repeatable `--header NAME:VALUE` options for non-sensitive headers or `--header-env NAME=ENV_VAR` for secrets.
-Add `--no-oauth` when the endpoint must not attempt automatic OAuth. Generation is never run by Vite or widget
-startup; the generated TypeScript file is the only artifact the widget needs offline.
+The schema-only generator does not need a running HTTP endpoint, OAuth, or Vite startup. The generated TypeScript file
+is the only artifact the widget needs offline. Use `npx belgie-mcp generate` when the source server is remote.
 
 ## Project convention
 

@@ -45,6 +45,48 @@ def test_parse_belgie_tool_config_reads_module_mode() -> None:
     assert config.source == Path()
 
 
+def test_parse_belgie_tool_config_reads_typescript_settings() -> None:
+    config = parse_belgie_tool_config(
+        {
+            "tool": {
+                "belgie": {
+                    "typescript": {
+                        "target": "mcp_app.__main__:mcp",
+                        "output": "src/widgets/tools.ts",
+                    },
+                },
+            },
+        },
+    )
+
+    assert config.typescript.target == "mcp_app.__main__:mcp"
+    assert config.typescript.output == Path("src/widgets/tools.ts")
+
+
+@pytest.mark.parametrize(
+    ("value", "match"),
+    [
+        pytest.param([], "must be a table", id="invalid-table"),
+        pytest.param({"target": ""}, "target", id="empty-target"),
+        pytest.param({"output": ""}, "output", id="empty-output"),
+    ],
+)
+def test_parse_belgie_tool_config_rejects_invalid_typescript_settings(
+    value: object,
+    match: str,
+) -> None:
+    with pytest.raises(PyprojectError, match=match):
+        parse_belgie_tool_config(
+            {
+                "tool": {
+                    "belgie": {
+                        "typescript": value,
+                    },
+                },
+            },
+        )
+
+
 def test_parse_belgie_tool_config_rejects_invalid_module_mode() -> None:
     with pytest.raises(PyprojectError, match="must be a boolean"):
         parse_belgie_tool_config({"tool": {"belgie": {"module": "true"}}})

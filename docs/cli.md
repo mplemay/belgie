@@ -30,10 +30,17 @@ Optional project settings live under `[tool.belgie]`:
 source = "src/widgets"
 module = false
 minimum-dependency-age = "P7D"
+
+[tool.belgie.typescript]
+target = "mcp_app.__main__:mcp"
+output = "src/mcp_app/views/widgets/tools.ts"
 ```
 
 `source` is a relative path used by project integrations. `module` controls whether commands run
 as modules by default. Paths containing `..` and absolute paths are rejected.
+
+The optional `[tool.belgie.typescript]` table supplies the Python MCP target and generated output
+used by `belgie typescript` and its `types` alias.
 
 `minimum-dependency-age` matches Deno's policy for npm and JSR packages. Accept minutes (`120`), an
 ISO-8601 duration (`P7D`), a `YYYY-MM-DD` date, an RFC3339 timestamp, or `0` / `false` to disable.
@@ -51,6 +58,7 @@ command with `--minimum-dependency-age` / `--min-dep-age`.
 | `belgie update [ALIASES...]` | Update selected aliases or all aliases and write the lockfile. |
 | `belgie list` | Print the declared dependency aliases and specifiers. |
 | `belgie run COMMAND [ARGS...]` | Install the project and run an installed command. |
+| `belgie typescript [TARGET]` / `belgie types [TARGET]` | Generate typed MCP callers from a local Python target. |
 | `belgie --version` | Print the installed Belgie version. |
 
 ## Add and lock a dependency
@@ -128,6 +136,26 @@ Select a working directory or override module mode when needed:
 uv run belgie run --cwd src vite build
 uv run belgie run --module vite build
 ```
+
+## Generate TypeScript callers
+
+Configure a Python `MCPServer` or `BelgieExtension` and run the schema-only generator:
+
+```bash
+uv run belgie typescript
+uv run belgie typescript --check
+```
+
+Pass a target or output path to override project configuration:
+
+```bash
+uv run belgie typescript mcp_app.__main__:mcp --output src/mcp-tools.ts
+```
+
+The target is imported without starting Vite or executing tool functions. `--no-frozen` allows
+dependency resolution when the project does not yet have a `deno.lock` file.
+Local generation requires the Python `mcp` extra and an `@belgie/mcp` entry in
+`[tool.belgie.dependencies]`.
 
 ## Use another project directory
 

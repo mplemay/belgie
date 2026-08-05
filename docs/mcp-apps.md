@@ -125,7 +125,17 @@ starting a production extension with `dev=False` and `build=False`.
 
 ## Generate typed tool callers
 
-Use the package CLI against a streamable HTTP MCP endpoint after the server is running:
+For a local Python MCP project, configure the target and output in `pyproject.toml`, then generate
+from the registered server without starting an HTTP endpoint:
+
+```bash
+uv run belgie typescript
+uv run belgie typescript --check
+```
+
+The target may be an `MCPServer` or `BelgieExtension`; generation reads its registered schemas
+without loading widget HTML, starting Vite, or executing tool bodies. For a remote streamable HTTP
+MCP endpoint, use the package CLI after the server is running:
 
 ```bash
 npx belgie-mcp generate http://127.0.0.1:3001/mcp --output src/widgets/tools.ts
