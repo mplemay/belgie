@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, cast
+from typing import cast
 
 import pytest
 from pydantic_ai import RunContext
@@ -12,9 +13,9 @@ from pydantic_ai.messages import ToolReturn
 from belgie.errors import BelgieError
 from belgie.pydantic_ai import BelgieSandbox, BelgieSandboxExecutionError, BelgieSandboxSession
 from belgie.pydantic_ai._toolset import (
-    BelgieSandboxToolset,
     DEFAULT_MAX_OUTPUT_BYTES,
     RUN_TYPESCRIPT_TOOL_NAME,
+    BelgieSandboxToolset,
 )
 
 
@@ -24,7 +25,7 @@ async def active_toolset(
 ) -> AsyncIterator[BelgieSandboxToolset[None]]:
     toolset = (capability or BelgieSandbox[None]()).get_toolset()
     assert isinstance(toolset, BelgieSandboxToolset)
-    run_toolset = await toolset.for_run(cast(RunContext[None], None))
+    run_toolset = await toolset.for_run(cast("RunContext[None]", None))
     assert isinstance(run_toolset, BelgieSandboxToolset)
     async with run_toolset:
         yield run_toolset
@@ -67,7 +68,7 @@ async def test_session_is_lazy_and_run_scoped(fake_belgie) -> None:
 async def test_owned_session_cleanup_can_be_retried(fake_belgie) -> None:
     toolset = BelgieSandbox[None]().get_toolset()
     assert isinstance(toolset, BelgieSandboxToolset)
-    run_toolset = await toolset.for_run(cast(RunContext[None], None))
+    run_toolset = await toolset.for_run(cast("RunContext[None]", None))
     assert isinstance(run_toolset, BelgieSandboxToolset)
     await run_toolset.__aenter__()
     await run_toolset.run_typescript("code")
@@ -140,10 +141,10 @@ async def test_concurrent_runs_have_separate_runtimes(fake_belgie) -> None:
 
 async def test_cancelled_script_is_drained(fake_belgie) -> None:
     fake_belgie.hang = True
+    fake_belgie.script_started = asyncio.Event()
     async with active_toolset() as toolset:
         task = asyncio.create_task(toolset.run_typescript("hang"))
-        while not fake_belgie.scripts and not task.done():
-            await asyncio.sleep(0)
+        await fake_belgie.script_started.wait()
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Callable, Sequence
+from typing import Any, Self
 
 
 class FakeBelgie:
@@ -17,6 +18,7 @@ class FakeBelgie:
         self.runtime_exit_error: BaseException | None = None
         self.enter_started: asyncio.Event | None = None
         self.enter_gate: asyncio.Event | None = None
+        self.script_started: asyncio.Event | None = None
         self.hang = False
         self.cancelled = False
         self.environments: list[_Environment] = []
@@ -91,7 +93,7 @@ class _Environment:
         self.exit_calls = 0
         control.environments.append(self)
 
-    async def __aenter__(self) -> _Environment:
+    async def __aenter__(self) -> Self:
         return self
 
     async def __aexit__(self, *args: object) -> None:
@@ -131,6 +133,8 @@ class _ActiveRuntime:
                     raise self.control.render_error
                 return self.control.render_result
             self.control.scripts.append(script.content)
+            if self.control.script_started is not None:
+                self.control.script_started.set()
             if self.control.hang:
                 try:
                     await asyncio.Event().wait()

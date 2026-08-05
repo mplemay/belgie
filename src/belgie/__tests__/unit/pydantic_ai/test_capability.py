@@ -9,6 +9,7 @@ from pydantic_ai.messages import ModelRequest, TextPart, ToolCallPart, ToolRetur
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.models.test import TestModel
 
+from belgie import pydantic_ai
 from belgie.pydantic_ai import (
     BelgieSandbox,
     BelgieSandboxError,
@@ -21,8 +22,6 @@ from belgie.pydantic_ai._capability import DEFAULT_CAPABILITY_DESCRIPTION, DEFAU
 
 
 def test_public_exports_are_limited() -> None:
-    import belgie.pydantic_ai as pydantic_ai
-
     assert set(pydantic_ai.__all__) == {
         "BelgieSandbox",
         "BelgieSandboxError",
@@ -51,7 +50,7 @@ def test_public_exports_are_limited() -> None:
 )
 def test_validates_configuration(kwargs: dict[str, object], message: str) -> None:
     with pytest.raises(ValueError, match=message):
-        cast(Any, BelgieSandbox)(**kwargs)
+        cast("Any", BelgieSandbox)(**kwargs)
 
 
 def test_session_configuration_conflicts() -> None:
@@ -114,15 +113,15 @@ async def test_agent_executes_tool_and_preserves_other_tools(fake_belgie) -> Non
                         tool_name="run_typescript",
                         args={"code": "export default () => 42"},
                         tool_call_id="run-1",
-                    )
-                ]
+                    ),
+                ],
             )
         return ModelResponse(parts=[TextPart(content="done")])
 
-    agent = cast(Any, Agent)(
+    agent = cast("Any", Agent)(
         FunctionModel(model),
         tools=[echo],
-        capabilities=[cast(Any, BelgieSandbox[None]())],
+        capabilities=[cast("Any", BelgieSandbox[None]())],
     )
     result = await agent.run("run TypeScript")
 
@@ -156,7 +155,7 @@ async def test_deferred_capability_hides_tool_until_loaded(fake_belgie) -> None:
 
 async def test_durable_execution_is_rejected(fake_belgie) -> None:
     try:
-        from pydantic_ai.durable_exec.dbos import DBOSDurability
+        from pydantic_ai.durable_exec.dbos import DBOSDurability  # noqa: PLC0415
     except ImportError:
         pytest.skip("DBOS is not installed")
 

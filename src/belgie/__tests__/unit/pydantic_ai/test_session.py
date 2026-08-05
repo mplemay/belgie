@@ -13,6 +13,7 @@ from belgie.pydantic_ai import (
     BelgieSandboxSession,
     BelgieSandboxTimeoutError,
     BelgieSandboxUnavailableError,
+    _session,
 )
 from belgie.pydantic_ai._session import (
     DEFAULT_RENDER_DEPENDENCIES,
@@ -71,7 +72,7 @@ async def test_package_imports_do_not_enable_runtime_network(fake_belgie) -> Non
 
 async def test_rendering_uses_side_channel_without_script_ffi(fake_belgie) -> None:
     fake_belgie.result = {RENDER_REQUEST_KEY: 1}
-    source = 'export default () => render({ widget: null, plugins: [] })'
+    source = "export default () => render({ widget: null, plugins: [] })"
 
     async with BelgieSandboxSession(enable_rendering=True) as session:
         workspace = session.workspace
@@ -94,7 +95,7 @@ async def test_rendering_uses_side_channel_without_script_ffi(fake_belgie) -> No
             "allow_write": [str(workspace)],
         }
         assert fake_belgie.render_calls == [
-            (source, (workspace / "__deno_python_inline__.tsx").resolve().as_uri())
+            (source, (workspace / "__deno_python_inline__.tsx").resolve().as_uri()),
         ]
 
     assert all(runtime.exited for runtime in fake_belgie.runtimes)
@@ -145,7 +146,8 @@ async def test_rejects_concurrent_enter(fake_belgie) -> None:
 
 async def test_requires_asyncio(fake_belgie, monkeypatch: pytest.MonkeyPatch) -> None:
     def no_loop() -> None:
-        raise RuntimeError("no loop")
+        message = "no loop"
+        raise RuntimeError(message)
 
     monkeypatch.setattr(asyncio, "get_running_loop", no_loop)
     with pytest.raises(BelgieSandboxError, match="requires an asyncio"):
@@ -153,10 +155,9 @@ async def test_requires_asyncio(fake_belgie, monkeypatch: pytest.MonkeyPatch) ->
 
 
 async def test_missing_dependency_clears_entering_guard(fake_belgie, monkeypatch: pytest.MonkeyPatch) -> None:
-    from belgie.pydantic_ai import _session
-
     def missing_belgie() -> object:
-        raise BelgieSandboxUnavailableError("Belgie Sandbox requires Belgie and Python 3.12-3.14.")
+        message = "Belgie Sandbox requires Belgie and Python 3.12-3.14."
+        raise BelgieSandboxUnavailableError(message)
 
     monkeypatch.setattr(_session, "_load_belgie", missing_belgie)
     session = BelgieSandboxSession()
@@ -255,10 +256,10 @@ async def test_runtime_timeout_error_is_execution_failure(fake_belgie) -> None:
 
 async def test_caller_cancellation_is_preserved(fake_belgie) -> None:
     fake_belgie.hang = True
+    fake_belgie.script_started = asyncio.Event()
     async with BelgieSandboxSession() as session:
         task = asyncio.create_task(session.run_script("export default async () => await never"))
-        while not fake_belgie.scripts and not task.done():
-            await asyncio.sleep(0)
+        await fake_belgie.script_started.wait()
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
@@ -283,7 +284,7 @@ async def test_rejects_calls_while_closed(fake_belgie) -> None:
 )
 async def test_rejects_invalid_session_configuration(kwargs: dict[str, object], message: str) -> None:
     with pytest.raises(ValueError, match=message):
-        cast(Any, BelgieSandboxSession)(**kwargs)
+        cast("Any", BelgieSandboxSession)(**kwargs)
 
 
 async def test_runtime_rejects_owned_settings(fake_belgie) -> None:
@@ -293,7 +294,7 @@ async def test_runtime_rejects_owned_settings(fake_belgie) -> None:
 
 
 @pytest.mark.parametrize(
-    ("source", "timeout", "error_type", "message"),
+    ("source", "deadline", "error_type", "message"),
     [
         (1, 1.0, TypeError, "source must be a string"),
         ("code", 0, ValueError, "timeout must be a positive finite number"),
@@ -303,13 +304,13 @@ async def test_runtime_rejects_owned_settings(fake_belgie) -> None:
 async def test_validates_run_arguments(
     fake_belgie,
     source: object,
-    timeout: object,
+    deadline: object,
     error_type: type[Exception],
     message: str,
 ) -> None:
     async with BelgieSandboxSession() as session:
         with pytest.raises(error_type, match=message):
-            await cast(Any, session).run_script(source, timeout=timeout)
+            await cast("Any", session).run_script(source, timeout=deadline)
 
 
 def test_public_workspace_contract() -> None:
