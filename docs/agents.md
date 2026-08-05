@@ -63,7 +63,7 @@ Adapt labels and paths as the product grows, but keep the same roles:
 | Install | Default install, extras, optional skill install |
 | Core Concepts | `Runtime`, `Script`, `Environment`, `Command` |
 | MCP Apps | `BelgieExtension`, widgets, Vite, `[tool.belgie.dependencies]` |
-| AI Agents | Shared `run_code` session; integration-specific pages |
+| AI Agents | Pydantic AI `run_typescript` and LangChain `run_code` sessions |
 | CLI | `add`, `lock`, `install`, `update`, `list`, `run` |
 | Packages | User-facing JS packages when they need dedicated docs |
 | Examples | Walkthroughs that pull from `examples/` |
@@ -291,7 +291,7 @@ Every mature docs set for this project should cover:
 - A path from zero to a working Runtime / Script example
 - Core sandbox concepts
 - MCP Apps (widgets + Python tools)
-- AI agent integrations (`run_code` via supported frameworks)
+- AI agent integrations (`run_typescript` for Pydantic AI and `run_code` for LangChain)
 - CLI for dependency and project workflows
 - At least one example walkthrough per major path (basic, UI, agents)
 - Troubleshooting for common setup and runtime failures

@@ -5,7 +5,7 @@ For usage questions, first check the relevant concept or integration page:
 - [Runtime](runtime.md) and [Script](script.md) for direct execution.
 - [Environment](environment.md) and [CLI](cli.md) for dependency workflows.
 - [MCP Apps](mcp-apps.md) for widgets and Python MCP tools.
-- [AI agents](agents/overview.md) for `run_code`.
+- [AI agents](agents/overview.md) for Pydantic AI `run_typescript` and LangChain `run_code`.
 - [Troubleshooting](troubleshooting.md) for common errors.
 
 For a reproducible bug report, include:

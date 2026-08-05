@@ -2,7 +2,7 @@
 
 Belgie embeds a Deno-powered JavaScript and TypeScript runtime in Python. Use it to execute scripts
 with explicit permissions, manage JavaScript dependencies, build React MCP Apps, or give AI agents a
-`run_code` tool.
+JavaScript sandbox tool.
 
 ## Choose a path
 
@@ -12,7 +12,7 @@ with explicit permissions, manage JavaScript dependencies, build React MCP Apps,
 | Share dependencies or a workspace across runs | [Environment](environment.md) | Resolve npm, JSR, URL, and local file dependencies with a lockfile. |
 | Invoke an installed JavaScript package binary | [Command](command.md) | Run tools such as Vite through the same runtime boundary. |
 | Attach a React widget to an MCP tool | [MCP Apps](mcp-apps.md) | Connect Python tools, Vite widgets, and typed tool callers. |
-| Let an agent write JavaScript or TypeScript | [AI agents](agents/overview.md) | Add `run_code` to Pydantic AI or LangChain. |
+| Let an agent write JavaScript or TypeScript | [AI agents](agents/overview.md) | Add `run_typescript` to Pydantic AI or `run_code` to LangChain. |
 
 ## Install
 
@@ -60,7 +60,7 @@ Use [`BelgieExtension`](mcp-apps.md) to connect a Python MCP tool to a React wid
 `<name>/widget.tsx`. Belgie uses Vite during development and serves self-contained widget HTML in
 production. Follow the [MCP Apps example](examples/mcp.md) for the complete workflow.
 
-## Give an agent `run_code`
+## Give an agent a JavaScript sandbox
 
 Install one supported integration:
 
@@ -73,9 +73,9 @@ Then add Belgie to the agent:
 ```python
 from pydantic_ai import Agent
 
-from belgie.pydantic_ai import BelgieCapability
+from belgie.pydantic_ai import BelgieSandbox
 
-agent = Agent("openai:gpt-5", capabilities=[BelgieCapability()])
+agent = Agent("openai:gpt-5", capabilities=[BelgieSandbox()])
 result = agent.run_sync("Use TypeScript to convert 'hello-world' to camelCase.")
 print(result.output)
 ```
