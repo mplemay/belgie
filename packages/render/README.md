@@ -1,11 +1,17 @@
 # `@belgie/render`
 
-`@belgie/render` returns a render request from agent `run_code` Scripts. `BelgieRuntimeSession` (and
-the Pydantic AI / LangChain toolsets) complete that request on a Belgie-owned renderer side-channel
-and return one self-contained HTML document. Model-visible Scripts stay workspace-restricted: they
-do not receive host `/etc`/`/proc`, `allow_sys`, or `allow_ffi`, even when inline rendering is
-available. The renderer uses workspace-scoped read/write/FFI and limited `allow_sys` for Vite native
-loaders — not host path grants.
+`@belgie/render` lets an agent-authored TypeScript or TSX script request one self-contained HTML
+document. Belgie evaluates the script in its restricted agent runtime, rebuilds the widget in a
+separate renderer runtime, and returns the HTML as the ordinary `run_code` result.
+
+See the [full package guide](https://mplemay.github.io/belgie/packages/render/) and the
+[AI agent overview](https://mplemay.github.io/belgie/agents/overview/) for integration details.
+Use [`@belgie/mcp`](https://mplemay.github.io/belgie/packages/mcp/) for path-based widgets owned by
+a Python MCP server.
+
+## Render a widget
+
+Import `render` with the Deno npm specifier and return it from the script's exported function:
 
 ```tsx
 import { render } from "npm:@belgie/render";
@@ -22,21 +28,73 @@ export default function run() {
 }
 ```
 
-The source must be a single inline TSX module. Package imports are supported. Relative imports are
-unsupported for the browser widget graph; server `plugins` may import workspace modules, resolved
-like Deno from the inline module URL (`__deno_python_inline__.tsx` in the Environment workspace).
+The result is one complete HTML document with inline JavaScript, CSS, and supported assets. The
+built-in Pydantic AI and LangChain integrations provide the renderer side channel. A caller-owned
+`Runtime()` does not provide that side channel by itself.
 
-`plugins` run only during the server-side Vite build on the privileged renderer. Script-side `plugins` expressions
-still evaluate under workspace-only permissions and are discarded; the privileged rebuild from source evaluates the
-plugin expression again. Plugin factories, hooks, and their imports therefore run with the renderer's broader
-permissions. Treat plugins as reviewed application code and use `plugins: []` for untrusted agents. Prefer pure
-factories or relative workspace plugin modules when construction must succeed in the restricted Script. Both
-`plugins` and `widget` must appear in a statically analyzable `render(...)` options object
-(inline literal, variable binding, or static object spread). Computed option keys, opaque spreads, and
-post-declaration mutation are unsupported and throw instead of shipping unsafe code to the browser. The browser
-mounts the extracted `widget` expression and does not re-execute `run()`, so side effects inside `run()` stay
-server-only. Widget expressions may only reference module-level bindings.
+## Options and imports
 
-Hosts that manage their own `Runtime` (without `BelgieRuntimeSession`) should call
-`buildFromSource` from `@belgie/render/host` on a worker with workspace FFI/sys grants; importing that
-entry from a restricted Script would reintroduce Vite's native grants into the model-visible session.
+`render()` accepts a required React `widget` and optional Vite `plugins`. Both values must be
+visible to static source analysis in an inline options object, a static variable binding, or a
+static object spread:
+
+```tsx
+const widget = <main>Ready</main>;
+const options = { widget, plugins: [] };
+
+export default function run() {
+  return render(options);
+}
+```
+
+Computed option keys, opaque spreads, post-declaration mutation, and dynamically imported render
+values are rejected. Package imports work in the browser graph:
+
+```tsx
+import { render } from "npm:@belgie/render";
+import React from "npm:react";
+
+const widget = <main>{React.createElement("strong", null, "Ready")}</main>;
+
+export default function run() {
+  return render({ widget, plugins: [] });
+}
+```
+
+Relative imports are unsupported for the browser widget graph. The browser mounts the extracted
+widget expression and does not run `run()` again, so browser dependencies must be reachable from
+module-level bindings.
+
+## Renderer permissions
+
+The agent script remains workspace-restricted. Vite builds the browser widget in a separate renderer
+with workspace-scoped read/write/FFI and the limited system access required by native loaders.
+
+Nonempty `plugins` values are evaluated again in that renderer. Plugin factories, hooks, and their
+imports therefore run with the renderer's broader permissions. Treat plugins as reviewed application
+code and use `plugins: []` for untrusted agents.
+
+## Host-owned rendering
+
+Applications that manage their own renderer can use the host entry from a privileged worker:
+
+```ts
+import { buildFromSource } from "@belgie/render/host";
+
+const html = await buildFromSource(source, inlineModuleUrl);
+```
+
+Do not import `@belgie/render/host` into a restricted agent script. It brings Vite's native loader
+requirements into the process and is intended for the renderer worker only.
+
+## Development
+
+```sh
+npm ci
+npm test
+npm run check
+npm pack --dry-run
+```
+
+The package is ESM-only, requires Node.js 22 or newer, and uses tsdown, publint, TypeScript, and
+Vitest in its package validation workflow.

@@ -11,7 +11,12 @@ from pydantic_ai.exceptions import ModelRetry
 from pydantic_ai.messages import ToolReturn
 
 from belgie.errors import BelgieError
-from belgie.pydantic_ai import BelgieSandbox, BelgieSandboxExecutionError, BelgieSandboxSession
+from belgie.pydantic_ai import (
+    BelgieSandbox,
+    BelgieSandboxExecutionError,
+    BelgieSandboxSession,
+    BelgieSandboxUnavailableError,
+)
 from belgie.pydantic_ai._toolset import (
     DEFAULT_MAX_OUTPUT_BYTES,
     RUN_TYPESCRIPT_TOOL_NAME,
@@ -85,6 +90,26 @@ async def test_owned_session_cleanup_can_be_retried(fake_belgie) -> None:
     assert fake_belgie.runtimes[0].exited
     with pytest.raises(BelgieSandboxExecutionError, match="not active"):
         await run_toolset.run_typescript("after close")
+
+
+async def test_owned_session_startup_cleanup_can_be_retried(fake_belgie) -> None:
+    toolset = BelgieSandbox[None]().get_toolset()
+    assert isinstance(toolset, BelgieSandboxToolset)
+    run_toolset = await toolset.for_run(cast("RunContext[None]", None))
+    assert isinstance(run_toolset, BelgieSandboxToolset)
+    await run_toolset.__aenter__()
+    fake_belgie.start_error = RuntimeError("worker failed")
+    fake_belgie.environment_exit_error = RuntimeError("cleanup failed")
+
+    with pytest.raises(BelgieSandboxUnavailableError, match="Cleanup also failed.*cleanup failed"):
+        await run_toolset.run_typescript("code")
+    assert fake_belgie.environments[0].exit_calls == 1
+    assert not fake_belgie.environments[0].exited
+
+    fake_belgie.environment_exit_error = None
+    await run_toolset.__aexit__(None, None, None)
+    assert fake_belgie.environments[0].exit_calls == 2
+    assert fake_belgie.environments[0].exited
 
 
 async def test_script_failure_and_output_limit_are_model_retries(fake_belgie) -> None:

@@ -120,8 +120,8 @@ class BelgieSandboxToolset(FunctionToolset[AgentDepsT]):
             enable_rendering=self._enable_rendering,
             max_old_generation_size_mb=self._max_old_generation_size_mb,
         )
-        await session.__aenter__()
         self._session = session
+        await session.__aenter__()
         return session
 
     async def run_typescript(
