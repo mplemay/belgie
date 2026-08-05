@@ -13,7 +13,7 @@ Use this page for inline agent-authored widgets. Use [MCP Apps](../mcp-apps.md) 
 | Widget ownership | API | Delivery |
 | --- | --- | --- |
 | A Python MCP server project | [MCP Apps](../mcp-apps.md) and `@belgie/mcp` | A registered `Path` to `widget.tsx`, served by Vite in development or read from built output in production. |
-| An agent run | `render(...)` | One self-contained HTML document returned as the framework tool result. |
+| An agent run | `render(...)` | One self-contained HTML document returned as the framework tool result (`run_typescript` for Pydantic AI or `run_code` for LangChain). |
 
 The two APIs use React and Vite, but they have different lifecycles. `render()` does not register a
 tool, open a development server, or create a reusable widget route.
