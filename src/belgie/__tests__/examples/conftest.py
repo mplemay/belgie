@@ -103,3 +103,9 @@ def tanstack_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
         lambda *_args, **_kwargs: html,
     )
     yield from _load_example_main(EXAMPLES_ROOT / "ui" / "tanstack", "tanstack")
+
+
+@pytest.fixture
+def pydantic_ai_ui_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    yield from _load_example_main(EXAMPLES_ROOT / "ui" / "pydantic-ai", "pydantic_ai_ui")

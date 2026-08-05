@@ -72,6 +72,12 @@ export default function run() {
 The result is self-contained HTML. It uses the host renderer described in
 [@belgie/render](../packages/render.md), not the path-based MCP widget build.
 
+## FastAPI generative UI
+
+[`examples/ui/pydantic-ai`](https://github.com/mplemay/belgie/tree/main/examples/ui/pydantic-ai) puts the same
+inline rendering flow behind a FastAPI endpoint and a small React SPA. The page accepts a prompt in a textbox,
+passes it to Pydantic AI, and displays the returned HTML in an isolated iframe.
+
 ## See also
 
 - [AI agent overview](../agents/overview.md)
