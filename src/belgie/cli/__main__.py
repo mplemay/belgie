@@ -218,14 +218,14 @@ def generate(
         typer.Option("-o", "--output", help="Generated TypeScript caller path"),
     ] = None,
     project: ProjectDir = None,
-    check: Annotated[
+    check: Annotated[  # noqa: FBT002
         bool,
         typer.Option("--check", help="Fail when the generated output is stale or missing"),
-    ] = False,  # noqa: FBT002
-    frozen: Annotated[
+    ] = False,
+    frozen: Annotated[  # noqa: FBT002
         bool,
         typer.Option("--frozen/--no-frozen", help="Require and use the existing deno.lock"),
-    ] = True,  # noqa: FBT002
+    ] = True,
 ) -> None:
     _run_generate(target=target, output=output, project=project, check=check, frozen=frozen)
 

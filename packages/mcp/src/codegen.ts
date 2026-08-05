@@ -20,7 +20,7 @@ export interface ToolSchema {
   name: string;
   inputSchema: unknown;
   description?: string | undefined;
-  outputSchema?: unknown | undefined;
+  outputSchema?: unknown;
 }
 
 interface ToolNames {

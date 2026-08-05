@@ -65,7 +65,7 @@ def generate_typescript(
     return TypeScriptResult(path=path, tools=len(contracts), changed=changed)
 
 
-def _load_tool_contracts(project: BelgieProject, target: str) -> list[dict[str, Any]]:
+def _load_tool_contracts(project: BelgieProject, target: str) -> list[dict[str, Any]]:  # noqa: C901
     try:
         mcp_server_type = importlib.import_module("mcp.server").MCPServer
         belgie_extension_type = importlib.import_module("belgie.mcp").BelgieExtension
@@ -93,10 +93,7 @@ def _load_tool_contracts(project: BelgieProject, target: str) -> list[dict[str, 
     elif isinstance(value, mcp_server_type):
         server = value
     else:
-        msg = (
-            f"TypeScript target {target!r} must be a BelgieExtension or MCPServer, "
-            f"got {type(value).__name__}"
-        )
+        msg = f"TypeScript target {target!r} must be a BelgieExtension or MCPServer, got {type(value).__name__}"
         raise ProjectError(msg)
 
     tools = asyncio.run(server.list_tools())

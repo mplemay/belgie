@@ -16,9 +16,7 @@ runner = CliRunner()
 
 
 def write_project(root: Path, *, dependency: bool = True) -> None:
-    dependency_entry = (
-        '"@belgie/mcp" = "file:packages/mcp"' if dependency else ""
-    )
+    dependency_entry = '"@belgie/mcp" = "file:packages/mcp"' if dependency else ""
     (root / "pyproject.toml").write_text(
         f"""
 [project]
@@ -134,8 +132,8 @@ def test_typescript_check_rejects_stale_output(tmp_path: Path, monkeypatch: pyte
     output = tmp_path / "generated" / "tools.ts"
     output.parent.mkdir()
     output.write_text("old\n", encoding="utf-8")
-    monkeypatch.setattr(_typescript, "_load_tool_contracts", lambda project, target: [{"name": "typed"}])
-    monkeypatch.setattr(_typescript, "_compile_tool_contracts", lambda project, contracts, frozen: "new\n")
+    monkeypatch.setattr(_typescript, "_load_tool_contracts", lambda *_args: [{"name": "typed"}])
+    monkeypatch.setattr(_typescript, "_compile_tool_contracts", lambda *_args, **_kwargs: "new\n")
 
     with pytest.raises(ProjectError, match="stale or missing"):
         generate_typescript(project, target=None, output=None, frozen=True, check=True)

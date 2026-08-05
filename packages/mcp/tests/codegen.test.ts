@@ -451,7 +451,7 @@ test("generates deterministic types from every tools/list page", async () => {
 });
 
 test("generates the same types directly from schemas", async () => {
-  const generated = generateToolTypesFromSchemas([...SCHEMA_TOOLS].reverse());
+  const generated = generateToolTypesFromSchemas([...SCHEMA_TOOLS].toReversed());
   const golden = await readFile(new URL("fixtures/codegen.golden.ts", import.meta.url), "utf8");
   assert.equal(generated, golden);
 });
