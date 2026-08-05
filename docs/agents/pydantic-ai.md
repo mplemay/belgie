@@ -1,8 +1,8 @@
 # Pydantic AI
 
 Use `BelgieSandbox` when a Pydantic AI agent needs a restricted `run_typescript` tool. It executes
-complete JavaScript, TypeScript, or TSX modules in an embedded Deno runtime, outside the Python
-application process.
+complete JavaScript, TypeScript, or TSX modules in an embedded Deno runtime inside your Python
+application.
 
 ## Install
 
