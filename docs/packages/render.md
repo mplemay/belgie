@@ -2,7 +2,8 @@
 
 `@belgie/render` lets an agent-authored TypeScript or TSX script request one self-contained HTML
 document. Belgie evaluates the script in its restricted agent runtime, rebuilds the widget in a
-separate renderer runtime, and returns the HTML as the ordinary `run_code` result.
+separate renderer runtime, and returns the HTML as the ordinary framework tool result
+(`run_typescript` for Pydantic AI and `run_code` for LangChain).
 
 Use this page for inline agent-authored widgets. Use [MCP Apps](../mcp-apps.md) and
 [`@belgie/mcp`](mcp.md) when a Python MCP server owns a path-based `widget.tsx` project.
@@ -12,7 +13,7 @@ Use this page for inline agent-authored widgets. Use [MCP Apps](../mcp-apps.md) 
 | Widget ownership | API | Delivery |
 | --- | --- | --- |
 | A Python MCP server project | [MCP Apps](../mcp-apps.md) and `@belgie/mcp` | A registered `Path` to `widget.tsx`, served by Vite in development or read from built output in production. |
-| An agent run | `render(...)` | One self-contained HTML document returned as the `run_code` result. |
+| An agent run | `render(...)` | One self-contained HTML document returned as the framework tool result (`run_typescript` for Pydantic AI or `run_code` for LangChain). |
 
 The two APIs use React and Vite, but they have different lifecycles. `render()` does not register a
 tool, open a development server, or create a reusable widget route.

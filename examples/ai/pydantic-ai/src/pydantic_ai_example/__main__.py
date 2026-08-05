@@ -1,25 +1,20 @@
 from pydantic_ai import Agent
 
-from belgie import RuntimeOptions, RuntimePermissions
-from belgie.pydantic_ai import BelgieCapability
-
-runtime_options = RuntimeOptions(
-    permissions=RuntimePermissions(allow_net=["hacker-news.firebaseio.com"]),
-)
+from belgie.pydantic_ai import BelgieSandbox
 
 agent = Agent(
     "openai:gpt-5",
     instructions=(
-        "You can execute JavaScript, TypeScript, or TSX in a Deno sandbox with the run_code tool. "
+        "You can execute JavaScript, TypeScript, or TSX in a Deno sandbox with the run_typescript tool. "
         "Use it when fetching data or transforming values is easier in JS/TS than in Python."
     ),
-    capabilities=[BelgieCapability(runtime_options=runtime_options)],
+    capabilities=[BelgieSandbox(allow_network=True)],
 )
 
 
 def main() -> None:
     result = agent.run_sync(
-        "Use run_code with a TypeScript belgie.Script module that exports an async run function "
+        "Use run_typescript with a TypeScript belgie.Script module that exports an async run function "
         "to fetch the Hacker News top stories API and summarize the top headline.",
     )
     print(result.output)  # noqa: T201
