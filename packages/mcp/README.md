@@ -68,6 +68,17 @@ URLs resolve. Inline mode rejects retained JavaScript chunks and unsupported non
 
 ## Generate typed callers
 
+For a local Belgie Python project, configure its `MCPServer` or `BelgieExtension` in
+`pyproject.toml` and generate without starting HTTP, SSE, Vite, or tool bodies:
+
+```sh
+uv run belgie generate
+```
+
+The generated module uses the same schema renderer as the remote CLI below.
+
+For a remote streamable HTTP MCP endpoint, run:
+
 ```sh
 npx belgie-mcp generate \
   https://example.com/mcp \

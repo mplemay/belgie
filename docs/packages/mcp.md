@@ -122,8 +122,15 @@ widget must be a completely self-contained HTML document.
 
 ## Generate typed tool callers
 
-Generate callers from the MCP server's `tools/list` response instead of hand-writing input and
-output schemas:
+For a local Python MCP project, configure the target and output in `pyproject.toml`, then generate
+from the registered server without starting an HTTP endpoint:
+
+```bash
+uv run belgie generate
+```
+
+The Belgie CLI imports a local Python `MCPServer` or `BelgieExtension` in a schema-only context.
+For a remote streamable HTTP MCP endpoint, use the package CLI:
 
 ```bash
 npx belgie-mcp generate \

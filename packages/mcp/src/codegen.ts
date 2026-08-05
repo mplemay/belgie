@@ -16,13 +16,19 @@ export interface GenerateToolTypesOptions {
   openBrowser?: boolean;
 }
 
+export interface ToolSchema {
+  name: string;
+  inputSchema: unknown;
+  description?: string | undefined;
+  outputSchema?: unknown;
+}
+
 interface ToolNames {
   call: string;
   input: string;
   output: string;
 }
 
-type OutputSchema = NonNullable<Tool["outputSchema"]>;
 type ZodJsonSchema = Parameters<typeof z.fromJSONSchema>[0];
 
 function endpoint(value: string | URL): URL {
@@ -93,14 +99,14 @@ function canonicalize(value: unknown): unknown {
   return value;
 }
 
-function renderSchema(schema: OutputSchema): string[] {
+function renderSchema(schema: unknown): string[] {
   return JSON.stringify(canonicalize(schema), null, 2)
     .split("\n")
     .map((line) => `  ${line}`);
 }
 
 function compileToolSchema(
-  tool: Tool,
+  tool: ToolSchema,
   schemaName: "inputSchema" | "outputSchema",
   schema: unknown,
   rootName: string,
@@ -117,7 +123,7 @@ function compileToolSchema(
   }
 }
 
-function renderToolTypes(tools: Tool[]): string {
+function renderToolTypes(tools: readonly ToolSchema[]): string {
   const allocator = new IdentifierAllocator();
   const valueAllocator = new ValueIdentifierAllocator();
   const names = new Map<string, ToolNames>();
@@ -189,6 +195,30 @@ function renderToolTypes(tools: Tool[]): string {
     ...declarations.flatMap((declaration) => [declaration, ""]),
     ...calls,
   ].join("\n");
+}
+
+export function generateToolTypesFromSchemas(tools: readonly ToolSchema[]): string {
+  if (tools.length === 0) {
+    throw new Error("MCP server exposed no tools");
+  }
+  const names = new Set<string>();
+  const normalized = tools
+    .map((tool) => {
+      if (names.has(tool.name)) {
+        throw new Error(`MCP server exposed duplicate tool name ${JSON.stringify(tool.name)}`);
+      }
+      names.add(tool.name);
+      if (tool.outputSchema === null) {
+        return {
+          name: tool.name,
+          inputSchema: tool.inputSchema,
+          ...(tool.description === undefined ? {} : { description: tool.description }),
+        };
+      }
+      return tool;
+    })
+    .toSorted((left, right) => compareStrings(left.name, right.name));
+  return renderToolTypes(normalized);
 }
 
 // Codegen only lists tools; skip Ajv so non-standard formats (e.g. Pydantic "path") stay quiet.
@@ -276,7 +306,7 @@ export async function generateToolTypes(options: GenerateToolTypesOptions): Prom
       connection = createConnection(url, headers, provider);
       await connection.client.connect(connection.transport as Transport);
     }
-    return renderToolTypes(await discoverTools(connection.client));
+    return generateToolTypesFromSchemas(await discoverTools(connection.client));
   } catch (error: unknown) {
     if (error instanceof Error) {
       throw new Error(`Failed to generate MCP tool types from ${url.toString()}: ${error.message}`, {
