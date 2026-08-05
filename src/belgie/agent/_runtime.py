@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 from contextlib import AsyncExitStack, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import TracebackType
 from typing import TYPE_CHECKING, Final, Self, cast
+from uuid import uuid4
 
 from belgie import Command, Environment, JsonOutput, Runtime, RuntimeOptions, RuntimePermissions, Script
 from belgie.agent._options import BelgieOptions
@@ -162,8 +164,10 @@ class BelgieRuntimeSession(BelgieOptions):
         workspace = self._workspace
         if render_runtime is None or workspace is None or not self.enable_rendering:
             raise RuntimeError(RENDERING_UNAVAILABLE_MESSAGE)
-        widget_path = workspace / "widget.tsx"
-        out_path = workspace / "widget.html"
+        render_dir = workspace / f"render-{uuid4().hex}"
+        render_dir.mkdir()
+        widget_path = render_dir / "widget.tsx"
+        out_path = render_dir / "widget.html"
         widget_path.write_text(source, encoding="utf-8")
         argv = ["--widget", str(widget_path), "--out", str(out_path)]
         for plugin in self.plugins:
@@ -187,8 +191,7 @@ class BelgieRuntimeSession(BelgieOptions):
                     raise
             return out_path.read_text(encoding="utf-8")
         finally:
-            widget_path.unlink(missing_ok=True)
-            out_path.unlink(missing_ok=True)
+            shutil.rmtree(render_dir, ignore_errors=True)
 
     async def _enter_runtimes(self, stack: AsyncExitStack) -> tuple[AsyncRuntime, AsyncRuntime | None]:
         if self.runtime is not None:

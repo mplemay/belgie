@@ -4,7 +4,7 @@
 
 - a Vite plugin for path-based MCP App widgets;
 - a CLI that builds one widget file into self-contained HTML;
-- the host renderer used by agent `render_widget` tools.
+- the CLI-backed path used by agent `render_widget` tools.
 
 Use this page for the Vite plugin, CLI, and agent rendering contract. Use [`@belgie/mcp`](mcp.md)
 for browser Widget APIs (`Widget`, host hooks, modals, typed tool callers). Use

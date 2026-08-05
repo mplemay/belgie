@@ -4,11 +4,13 @@ import asyncio
 import importlib
 import math
 import re
+import shutil
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Final, Protocol, Self, runtime_checkable
+from uuid import uuid4
 
 import anyio
 
@@ -548,8 +550,10 @@ class BelgieSandboxSession:
             raise ValueError(message)
         belgie = _load_belgie()
         belgie_error = _load_belgie_error()
-        widget_path = workspace / "widget.tsx"
-        out_path = workspace / "widget.html"
+        render_dir = workspace / f"render-{uuid4().hex}"
+        render_dir.mkdir()
+        widget_path = render_dir / "widget.tsx"
+        out_path = render_dir / "widget.html"
         widget_path.write_text(source, encoding="utf-8")
         argv = ["--widget", str(widget_path), "--out", str(out_path)]
         for plugin in self._plugins:
@@ -577,8 +581,7 @@ class BelgieSandboxSession:
             message = f"Belgie widget rendering failed:\n{error}"
             raise BelgieSandboxExecutionError(message) from error
         finally:
-            widget_path.unlink(missing_ok=True)
-            out_path.unlink(missing_ok=True)
+            shutil.rmtree(render_dir, ignore_errors=True)
 
     async def _run_script(
         self,

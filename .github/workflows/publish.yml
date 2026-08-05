@@ -474,7 +474,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [mcp, render]
+        package: [mcp, vite]
     environment:
       name: npm
       url: https://www.npmjs.com/package/@belgie/${{ matrix.package }}

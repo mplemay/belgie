@@ -64,7 +64,7 @@ export default function Widget() {
 }
 ```
 
-The result is self-contained HTML. It uses the host renderer described in
+The result is self-contained HTML. It uses the `@belgie/vite` CLI described in
 [@belgie/vite](../packages/vite.md), not the path-based MCP widget build.
 
 ## See also

@@ -94,21 +94,50 @@ async def test_rendering_uses_side_channel_without_script_ffi(fake_belgie) -> No
             "allow_sys": list(DEFAULT_VITE_SYS_PERMISSIONS),
             "allow_write": [str(workspace)],
         }
-        assert fake_belgie.command_calls == [
-            (
-                "@belgie/vite",
-                (
-                    "--widget",
-                    str(workspace / "widget.tsx"),
-                    "--out",
-                    str(workspace / "widget.html"),
-                ),
-            ),
-        ]
-        assert not (workspace / "widget.tsx").exists()
-        assert not (workspace / "widget.html").exists()
+        assert len(fake_belgie.command_calls) == 1
+        command_name, argv = fake_belgie.command_calls[0]
+        assert command_name == "@belgie/vite"
+        assert argv[0] == "--widget"
+        assert argv[2] == "--out"
+        widget_path = Path(argv[1])
+        out_path = Path(argv[3])
+        assert widget_path.name == "widget.tsx"
+        assert out_path.name == "widget.html"
+        assert widget_path.parent == out_path.parent
+        assert widget_path.parent.parent == workspace
+        assert widget_path.parent.name.startswith("render-")
+        assert not widget_path.parent.exists()
+        assert not any(workspace.glob("render-*"))
 
     assert all(runtime.exited for runtime in fake_belgie.runtimes)
+
+
+async def test_concurrent_renders_use_isolated_paths(fake_belgie) -> None:
+    source_a = "export default function A() { return null; }"
+    source_b = "export default function B() { return null; }"
+
+    async with BelgieSandboxSession(enable_rendering=True) as session:
+        workspace = session.workspace
+        assert workspace is not None
+        results = await asyncio.gather(
+            session.render_widget(source_a),
+            session.render_widget(source_b),
+        )
+        assert results == ["<html>rendered</html>", "<html>rendered</html>"]
+        assert len(fake_belgie.command_calls) == 2
+        render_dirs: list[Path] = []
+        for command_name, argv in fake_belgie.command_calls:
+            assert command_name == "@belgie/vite"
+            widget = Path(argv[1])
+            out = Path(argv[3])
+            assert widget.name == "widget.tsx"
+            assert out.name == "widget.html"
+            assert widget.parent == out.parent
+            assert widget.parent.parent == workspace
+            assert widget.parent.name.startswith("render-")
+            render_dirs.append(widget.parent)
+        assert render_dirs[0] != render_dirs[1]
+        assert not any(workspace.glob("render-*"))
 
 
 async def test_render_widget_without_side_channel_is_an_error(fake_belgie) -> None:
