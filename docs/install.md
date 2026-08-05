@@ -19,7 +19,7 @@ Install only the integration dependencies your project uses.
 | --- | --- | --- |
 | `cli` | `typer`, `rtoml`, and `tomlkit` | Project dependency commands such as `belgie lock` and `belgie run`. |
 | `mcp` | MCP server and MCP Apps types | Python MCP tools with `BelgieExtension`. |
-| `pydantic-ai` | Pydantic AI with the OpenAI provider | `BelgieCapability`. |
+| `pydantic-ai` | Pydantic AI with the OpenAI provider | `BelgieSandbox`. |
 | `langchain` | LangChain | `BelgieMiddleware`. |
 
 Choose the smallest extra set that covers your workflow:
@@ -80,4 +80,4 @@ The skill is not required to import or run Belgie.
 - [Runtime](runtime.md) for direct JavaScript and TypeScript execution.
 - [Environment](environment.md) for named dependencies and lockfiles.
 - [MCP Apps](mcp-apps.md) for widgets and Python MCP tools.
-- [AI agents](agents/overview.md) for `run_code` integrations.
+- [AI agents](agents/overview.md) for Pydantic AI `run_typescript` and LangChain `run_code` integrations.

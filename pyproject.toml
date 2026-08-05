@@ -16,6 +16,7 @@ cli = [
     "typer>=0.20,<1",
 ]
 pydantic-ai = [
+    "anyio>=4",
     "pydantic-ai-slim[openai]>=2,<3",
 ]
 langchain = [

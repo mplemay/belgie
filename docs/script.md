@@ -60,7 +60,7 @@ Script arguments and results use Belgie's JSON bridge.
 
 Dates, class instances, functions, streams, and other non-JSON values must be converted inside the
 script before they cross back to Python. For agent integrations, this same rule applies to the
-value returned by `run_code`.
+value returned by an agent's JavaScript sandbox tool.
 
 ## Imports
 
