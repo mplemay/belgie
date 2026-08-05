@@ -1,14 +1,15 @@
 # AI agent examples
 
-The AI examples give an agent a single `run_code` tool for JavaScript, TypeScript, and TSX. Both
-examples ask the agent to use TypeScript to fetch and summarize Hacker News data.
+The AI examples give agents JavaScript sandbox tools for JavaScript, TypeScript, and TSX. The Pydantic AI example
+uses `run_typescript`; the LangChain example uses `run_code`. Both examples ask the agent to use TypeScript to fetch
+and summarize Hacker News data.
 
 Network access is denied by default. These examples explicitly allow only the
 `hacker-news.firebaseio.com` host.
 
 ## Demonstrates
 
-- `BelgieCapability` with Pydantic AI.
+- `BelgieSandbox` with Pydantic AI.
 - `BelgieMiddleware` with LangChain.
 - Agent-authored complete `belgie.Script` modules.
 - Framework-specific installation and result handling.
@@ -24,7 +25,7 @@ export OPENAI_API_KEY=...
 uv run main
 ```
 
-The agent is configured with `BelgieCapability`. The complete entrypoint is included from the
+The agent is configured with `BelgieSandbox(allow_network=True)`. The complete entrypoint is included from the
 shipped example:
 
 ```python

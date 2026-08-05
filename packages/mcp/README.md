@@ -1,175 +1,170 @@
 # `@belgie/mcp`
 
-TypeScript helpers for building Belgie MCP Apps, generating typed MCP tool callers, and packaging path-based React
-widgets with Vite.
+`@belgie/mcp` provides the browser-side pieces of a Belgie MCP App: a connected React widget,
+typed MCP tool callers, host-context hooks, host actions, modal support, and a Vite plugin.
+
+For the full guide, see the [package documentation](https://mplemay.github.io/belgie/packages/mcp/).
+The [MCP Apps guide](https://mplemay.github.io/belgie/mcp-apps/) covers Python registration and
+Belgie project setup.
 
 ## Installation
 
-Install the package and its MCP Apps peer dependency with npm:
-
 ```sh
 npm install @belgie/mcp @modelcontextprotocol/ext-apps
-```
-
-Install Vite when using the widget plugin:
-
-```sh
 npm install --save-dev vite
 ```
 
+The package is ESM-only and requires Node.js 22 or newer for its development and CLI workflows.
+
 ## Package exports
 
-- `@belgie/mcp` exports `Widget`, `mountWidget`, widget host-context hooks, `useModal`, `useWidget`, `useToolResult`,
-  context-bound App helpers, and MCP tool errors.
-- `@belgie/mcp/codegen` exports programmatic MCP tool-type generation.
+- `@belgie/mcp` exports `Widget`, `mountWidget`, tool-result and host-context hooks, host actions,
+  modal helpers, and MCP tool errors.
+- `@belgie/mcp/codegen` exports `generateToolTypes()` for programmatic MCP caller generation.
 - `@belgie/mcp/internal` contains the runtime factories used by generated callers.
 - `@belgie/mcp/vite` exports the `belgie()` Vite plugin.
-- `@belgie/mcp/package.json` exposes the package metadata.
-
-The package is ESM-only and requires Node.js 22 or newer.
-
-## Generate typed tool callers
-
-Run the CLI against a streamable HTTP MCP endpoint:
-
-```sh
-npx belgie-mcp generate https://example.com/mcp --output src/mcp-tools.ts
-```
-
-OAuth is enabled by default. Use `--no-oauth` for an endpoint that does not require it, `--no-open` to print the
-authorization URL, `--header NAME:VALUE` for a direct header, or `--header-env NAME=ENV_VAR` to read a secret from the
-environment. `--check` verifies that an existing output file is current without rewriting it.
-
-Generated callers execute only when called, use the connected widget App by default, and accept an explicit App as the
-optional second argument:
-
-```ts
-import { getWeather } from "./mcp-tools.ts";
-
-const { result, error } = await getWeather({ city: "Austin" });
-```
+- `@belgie/mcp/package.json` exposes package metadata.
 
 ## Build a widget
 
 Widgets are discovered at `<srcDir>/<name>/widget.tsx` and must have a default export:
 
 ```tsx
-import { Widget, mountWidget, useToolResult } from "@belgie/mcp";
-import { getWeather } from "../../../mcp-tools.ts";
+import { Widget } from "@belgie/mcp";
 
-function Weather() {
-  const weather = useToolResult(getWeather);
+export default function Weather() {
   return (
-    <Widget metadata={{ name: "weather", version: "1.0.0" }}>
-      {weather.data?.summary ?? "Waiting for weather"}
+    <Widget metadata={{ name: "Weather", version: "1.0.0" }}>
+      <main>Ready</main>
     </Widget>
   );
 }
-
-mountWidget(Weather);
 ```
 
-Add the plugin to a normal Vite configuration. Development serves each widget at `/widgets/<name>/index.html`.
-By default, production emits a self-contained `dist/widgets/<name>/index.html` with JavaScript, CSS, and assets inlined.
+The generated Vite entry calls `mountWidget` for discovered widgets. Use `mountWidget` directly
+only when you own the HTML entry and are not using the `<srcDir>/<name>/widget.tsx` convention.
+
+Configure the plugin in a normal Vite configuration:
 
 ```ts
-import { defineConfig } from "vite";
 import { belgie } from "@belgie/mcp/vite";
+import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [belgie({ srcDir: "src/widgets" })],
 });
 ```
 
-For a traditional multi-entry build, opt into shared output:
+Development serves `/widgets/<name>/index.html`. Inline production builds emit self-contained
+`dist/widgets/<name>/index.html` files with supported assets inlined. Use shared output when the
+widgets should reuse a normal Vite asset graph:
 
 ```ts
-plugins: [belgie({ bundle: "shared" })],
+plugins: [belgie({ srcDir: "src/widgets", bundle: "shared" })],
 ```
 
-Shared mode adds every widget to the project’s Vite input graph. Vite keeps shared JavaScript, CSS, fonts, images, and
-dynamic-import chunks as normal emitted assets, while `dist/widgets/<name>/index.html` references the widget entry and
-its CSS. Serve the configured Vite output directory at the paths described by `base`; use the default inline mode when
-the widget must be completely self-contained.
+Shared output requires serving the Vite output directory and configuring `base` so widget asset
+URLs resolve. Inline mode rejects retained JavaScript chunks and unsupported non-CSS assets.
 
-## Read widget host context
+## Generate typed callers
 
-Host-context hooks read the current MCP Apps environment and update when the host changes it. Use them inside a
-connected `<Widget>` child:
+```sh
+npx belgie-mcp generate \
+  https://example.com/mcp \
+  --output src/mcp-tools.ts
+```
+
+The generated functions use the active connected widget by default and accept an explicit `App` as
+their optional second argument:
+
+```ts
+import { getWeather } from "./mcp-tools.ts";
+
+const response = await getWeather({ city: "Austin" });
+if (response.error !== undefined) {
+  console.error(response.error.message);
+} else {
+  console.log(response.result);
+}
+```
+
+Calls resolve to `{ result, error: undefined }` or `{ result: undefined, error }` and do not reject
+for MCP, transport, context, or validation failures. Output-schema tools return typed Zod-validated
+structured content. Tools without an output schema return `RawToolResult`, preserving `content`,
+optional `structuredContent`, and `_meta`. MCP `isError` responses become `McpToolError` instances.
+
+OAuth is enabled by default. Use `--no-oauth`, `--no-open`, `--header NAME:VALUE`, or
+`--header-env NAME=ENV_VAR` as needed. Use `--check` to fail when the generated file is missing or
+stale without rewriting it:
+
+```sh
+npx belgie-mcp generate https://example.com/mcp \
+  --header-env Authorization=AUTH_HEADER \
+  --output src/mcp-tools.ts \
+  --check \
+  --no-open
+```
+
+## Consume tool results
+
+Use a generated caller with `useToolResult` inside a connected widget:
 
 ```tsx
-import {
-  useDisplayMode,
-  useLayout,
-  useLocale,
-  useTheme,
-  useUserAgent,
-} from "@belgie/mcp";
+import { Widget, useToolResult } from "@belgie/mcp";
+import { getWeather } from "./mcp-tools";
 
-function Environment() {
-  const [displayMode, setDisplayMode] = useDisplayMode();
-  const { maxHeight, safeArea } = useLayout();
-  const locale = useLocale();
-  const theme = useTheme();
-  const userAgent = useUserAgent();
+function WeatherView() {
+  const { data, error, isLoading, isFetching, execute } = useToolResult(getWeather);
+
+  if (isLoading) return <p>Waiting for the tool result...</p>;
+  if (error !== undefined) return <p>{error.message}</p>;
 
   return (
-    <section
-      data-theme={theme}
-      style={{ maxHeight, paddingTop: safeArea.insets.top }}
-    >
-      <p>{locale}</p>
-      <p>{userAgent.device.type}</p>
-      <button onClick={() => void setDisplayMode("fullscreen")}>
-        {displayMode === "fullscreen" ? "Fullscreen" : "Expand"}
+    <section>
+      <p>{data?.summary ?? "No result"}</p>
+      <button disabled={isFetching} onClick={() => void execute({ city: "Austin" })}>
+        {isFetching ? "Refreshing..." : "Refresh"}
       </button>
     </section>
   );
 }
-```
 
-`useLayout()` contains only container height and safe-area information. Theme, locale, and the normalized device and
-input-capability value are exposed separately through `useTheme()`, `useLocale()`, and `useUserAgent()`.
-
-## Open a modal
-
-`useModal` asks the host to show the current widget as a modal overlay. On ChatGPT it calls
-`window.openai.requestModal`; other hosts get an in-iframe polyfill with backdrop and Escape handling.
-
-```tsx
-import { useModal } from "@belgie/mcp";
-
-function Cart() {
-  const { isOpen, params, open } = useModal();
-
-  if (isOpen) {
-    return <ConfirmAddToCart productId={params?.productId} />;
-  }
-
+export default function Weather() {
   return (
-    <button onClick={() => open({ title: "Confirm", params: { productId: 42 } })}>
-      Add to cart
-    </button>
+    <Widget metadata={{ name: "Weather", version: "1.0.0" }}>
+      <WeatherView />
+    </Widget>
   );
 }
 ```
 
-`title`, `template`, and `anchor` are honored by Apps SDK hosts. The polyfill only applies `params`. Modal open must be
-user-initiated (for example a click handler), not a mount effect. Use `requestModal` / `closeModal` for the same
-behavior outside React render.
+The hook exposes `data`, `error`, `rawResult`, `status`, loading flags, and `execute`. It consumes
+the opening host result, reuses the latest input for no-argument executions, and keeps existing data
+visible during refreshes. It does not add caching, retries, deduplication, or input-change
+revalidation.
+
+## Host context, actions, and modals
+
+Use `useDisplayMode`, `useLayout`, `useLocale`, `useTheme`, `useUserAgent`, and `useWidget` inside a
+connected `<Widget>`. Context-bound helpers such as `sendMessage`, `sendLog`, `openLink`,
+`downloadFile`, `requestDisplayMode`, `requestTeardown`, and `updateModelContext` use the active
+widget automatically. Call an explicit `App` method when context is unavailable.
+
+`useModal()` returns `isOpen`, `params`, and `open`; `requestModal()` and `closeModal()` provide the
+imperative form. Open modals from a user action. Apps SDK hosts receive the complete modal options,
+while other hosts use the in-iframe fallback with `params`, a backdrop, and Escape handling.
+
+The [shipped MCP Apps example](https://github.com/mplemay/belgie/tree/main/examples/ui/mcp) combines
+the widget, generated caller, tool-result hook, and host actions in one runnable project.
 
 ## Development
 
-This package uses npm and keeps its lockfile in version control:
-
 ```sh
 npm ci
-npm run dev
-npm run check
-npm run test:watch
 npm test
+npm run check
 npm pack --dry-run
 ```
 
-`npm test` builds with tsdown, validates the package with publint and `@arethetypeswrong/cli` rules, runs the serialized
-Vitest suite with V8 coverage, and checks TypeScript 7 declarations and API fixtures.
+`npm test` builds with tsdown, validates package metadata and declarations, runs Vitest with V8
+coverage, and checks TypeScript API fixtures.

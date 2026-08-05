@@ -5,14 +5,24 @@ PYDANTIC_AI_REQUIRED_MESSAGE: Final[str] = (
 )
 
 try:
-    from belgie.agent import DEFAULT_RUN_CODE_INSTRUCTIONS
-    from belgie.pydantic_ai._capability import BelgieCapability
+    from belgie.pydantic_ai._capability import BelgieSandbox
+    from belgie.pydantic_ai._session import (
+        BelgieSandboxError,
+        BelgieSandboxExecutionError,
+        BelgieSandboxSession,
+        BelgieSandboxTimeoutError,
+        BelgieSandboxUnavailableError,
+    )
 except ModuleNotFoundError as import_error:
     if import_error.name in {"pydantic", "pydantic_ai"}:
         raise ImportError(PYDANTIC_AI_REQUIRED_MESSAGE) from import_error
     raise
 
 __all__: tuple[str, ...] = (
-    "DEFAULT_RUN_CODE_INSTRUCTIONS",
-    "BelgieCapability",
+    "BelgieSandbox",
+    "BelgieSandboxError",
+    "BelgieSandboxExecutionError",
+    "BelgieSandboxSession",
+    "BelgieSandboxTimeoutError",
+    "BelgieSandboxUnavailableError",
 )

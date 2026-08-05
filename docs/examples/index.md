@@ -9,7 +9,7 @@ and can be run independently from the repository checkout.
 | --- | --- | --- |
 | Basic runtime | [Basic Runtime](basic.md) | Scripts, imports, environments, and commands. |
 | MCP Apps | [MCP Apps](mcp.md) | Python MCP tools, React widgets, and Vite. |
-| AI agents | [AI Agents](ai-agents.md) | Pydantic AI and LangChain `run_code`. |
+| AI agents | [AI Agents](ai-agents.md) | Pydantic AI `run_typescript` and LangChain `run_code`. |
 
 ## Run an example
 
@@ -43,7 +43,7 @@ endpoint documented by that project's README.
 
 ### AI
 
-- `examples/ai/pydantic-ai`: Pydantic AI with `BelgieCapability`.
+- `examples/ai/pydantic-ai`: Pydantic AI with `BelgieSandbox`.
 - `examples/ai/langchain`: LangChain with `BelgieMiddleware`.
 
 ## See also
