@@ -1,5 +1,5 @@
 site_name: Belgie
-site_description: The generative AI/UI sandbox for python
+site_description: Run JavaScript, TypeScript, and TSX from Python for AI agents, MCP Apps, and direct runtime workflows.
 strict: true
 site_url: https://mplemay.github.io/belgie/
 

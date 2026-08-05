@@ -1,8 +1,10 @@
 # Runtime
 
-Use `Runtime` when Python needs to execute JavaScript, TypeScript, or TSX. A runtime owns the
-embedded Deno execution context and returns a callable runner for each [`Script`](script.md) or
+Use `Runtime` when Python needs to execute JavaScript, TypeScript, or TSX. It owns the embedded Deno
+execution context and returns a callable runner for each [`Script`](script.md) or
 [`Command`](command.md).
+
+Choose `Runtime` directly when an agent framework or MCP App is not the right entry point.
 
 Keep the runtime entered until every runner created from it has finished. The context manager
 selects synchronous or asynchronous runners for the surrounding Python code.
@@ -38,7 +40,7 @@ and dictionaries with string keys.
 
 ## Choose a runtime setup
 
-| Use | Runtime form | What it provides |
+| Use | Runtime form | What you get |
 | --- | --- | --- |
 | A short script with inline imports | `Runtime()` | The current Python working directory and the default runtime options; it does not create a temporary workspace. |
 | Shared dependencies or a lockfile | `Runtime(env=environment)` | The workspace and dependency resolution owned by an [`Environment`](environment.md). |
@@ -137,7 +139,7 @@ workspace and allowed paths scoped to the files the script needs.
 
 !!! warning "Permissions are the execution boundary"
     A runtime with broad permissions can access the resources listed by that policy. Treat
-    permission configuration as part of your application’s security design.
+    permission configuration as part of your application's security design.
 
 ## See also
 

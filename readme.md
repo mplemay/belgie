@@ -1,4 +1,4 @@
-# Belgie: The generative AI/UI sandbox for python
+# Belgie: Run JavaScript and TypeScript from Python
 
 [![CI](https://github.com/mplemay/belgie/actions/workflows/test.yml/badge.svg?event=push)](https://github.com/mplemay/belgie/actions/workflows/test.yml?query=branch%3Amain)
 [![PyPI](https://img.shields.io/pypi/v/belgie.svg)](https://pypi.python.org/pypi/belgie)
@@ -10,13 +10,15 @@
 
 ---
 
-Belgie is a sandboxed TypeScript environment for Python that lets you build React MCP Apps and
-have agents write code in a sandbox.
+Belgie gives AI agents and Python applications a permissioned way to run JavaScript, TypeScript, and
+TSX. Use the embedded Deno runtime to add sandbox tools to Pydantic AI and LangChain, build React
+MCP Apps, or execute scripts directly from Python.
 
-- **MCP Apps:** Attach React widgets to Python MCP tools in one project.
-- **AI agents:** Sandboxed `run_typescript` for Pydantic AI and `run_code` for LangChain.
+- **AI agents:** Add sandboxed `run_typescript` for Pydantic AI or `run_code` for LangChain.
 - **Inline React widgets:** Return self-contained HTML from either agent integration with `@belgie/render`.
-- **Sandbox:** Deno is bundled, so you do not need to install Node.js.
+- **MCP Apps:** Connect Python MCP tools to React widgets and typed tool callers.
+- **Direct runtime:** Run scripts, resolve JavaScript dependencies, and invoke package binaries from Python.
+- **Embedded runtime:** Deno is bundled, so the Python runtime does not require Node.js.
 
 ## Installation
 
@@ -31,10 +33,11 @@ For MCP Apps, install the MCP and CLI extras:
 uv add "belgie[mcp,cli]"
 ```
 
-## MCP Apps
+## Build MCP Apps
 
-Skip the second package manager. Attach a React widget to a Python MCP tool.
-`BelgieExtension` starts Vite in the background for development and runs a one-time production build.
+Keep the Python and JavaScript dependency workflow in one project. Attach a React widget to a Python
+MCP tool. `BelgieExtension` starts Vite in the background for development and runs a one-time
+production build.
 
 ```python
 from datetime import UTC, datetime
@@ -105,9 +108,10 @@ Runnable projects:
 
 ## AI agents
 
-When an agent needs an npm package, a browser-style API, or a JS-side transform, give it the
-Belgie sandbox tool. Pydantic AI uses `run_typescript`; LangChain uses `run_code`. Belgie executes
-the TypeScript, JavaScript, or TSX in the embedded Deno sandbox. No separate Node install.
+When an agent needs a browser-style API or a JavaScript transformation, give it the Belgie sandbox
+tool. Pydantic AI uses `run_typescript`; LangChain uses `run_code`. Belgie executes JavaScript,
+TypeScript, or TSX in the embedded Deno sandbox. The Python runtime does not require a separate Node
+install.
 
 ### Pydantic AI
 
@@ -121,7 +125,7 @@ from belgie.pydantic_ai import BelgieSandbox
 agent = Agent("openai:gpt-5", capabilities=[BelgieSandbox()])
 
 result = agent.run_sync(
-    "Convert 'foo-bar' to camelCase using TypeScript and the camelcase npm package.",
+    "Convert 'foo-bar' to camelCase using TypeScript.",
 )
 print(result.output)
 ```
@@ -141,7 +145,7 @@ agent = create_agent(
     model="openai:gpt-5",
     tools=[],
     middleware=[BelgieMiddleware()],
-    system_prompt="You can execute JS/TS in a Deno sandbox with run_code.",
+    system_prompt="You can execute JavaScript or TypeScript in a Deno sandbox with run_code.",
 )
 
 result = agent.invoke(
@@ -149,7 +153,7 @@ result = agent.invoke(
         "messages": [
             (
                 "user",
-                "Convert 'foo-bar' to camelCase using TypeScript and the camelcase npm package.",
+                "Convert 'foo-bar' to camelCase using TypeScript.",
             ),
         ],
     },
@@ -161,8 +165,8 @@ See [examples/ai/langchain](examples/ai/langchain).
 
 ## Under the hood: Deno in Python
 
-MCP Apps and both agent sandbox integrations use Belgie’s embedded Deno runtime. Call it directly when you
-need JS/TS from Python without MCP or an agent framework:
+MCP Apps and both agent sandbox integrations use Belgie's embedded Deno runtime. Call it directly
+when you need JavaScript or TypeScript from Python without MCP or an agent framework:
 
 - **Scripts:** Inline or file-based JS/TS with `Runtime` and `Script`, sync or async.
 - **Inline dependencies:** Import npm, JSR, and URL modules from source.
@@ -206,8 +210,9 @@ asyncio.run(main())
 
 ## Inline widget rendering
 
-Pydantic AI and LangChain agents can return a complete inline React widget through their sandbox tools (`run_typescript`
-and `run_code`, respectively). The agent writes one TSX module and imports the standalone renderer:
+Pydantic AI and LangChain agents can return a complete inline React widget through their sandbox
+tools (`run_typescript` and `run_code`, respectively). The agent writes one TSX module and imports
+the standalone renderer:
 
 ```tsx
 import { render } from "npm:@belgie/render";

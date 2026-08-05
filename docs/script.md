@@ -1,8 +1,10 @@
 # Script
 
-Use `Script` to represent an inline or file-based JavaScript, TypeScript, or TSX module that a
-[`Runtime`](runtime.md) can execute. A script is reusable; the runtime creates the callable runner
-when you pass it to `runtime(script)`.
+Use `Script` to give a [`Runtime`](runtime.md) executable JavaScript, TypeScript, or TSX source.
+Choose inline source for a short transform or agent-authored module. Choose a file when the script
+belongs to your project and needs local imports.
+
+A script is reusable. The runtime creates its callable runner when you pass it to `runtime(script)`.
 
 ## Inline source
 
