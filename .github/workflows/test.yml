@@ -59,6 +59,12 @@ jobs:
           uv sync
           uv run belgie install
 
+      - name: Install pydantic ai example frontend dependencies
+        working-directory: examples/ui/pydantic-ai
+        run: |
+          uv sync
+          uv run belgie install
+
       - uses: j178/prek-action@4e14d07f9231acabce116ccfca13b13dd9755ece # v3.0.0
 
   test-python:

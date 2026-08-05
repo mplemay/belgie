@@ -11,6 +11,8 @@ from belgie.pydantic_ai import BelgieCapability
 PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 FRONTEND_DIR: Final[Path] = PROJECT_ROOT / "dist" / "client"
 MAX_PROMPT_LENGTH: Final[int] = 4_000
+SANDBOX_TIMEOUT_SECONDS: Final[float] = 30.0
+INVALID_HTML_RESPONSE_MESSAGE: Final[str] = "the agent did not return a rendered HTML document"
 GENERATION_INSTRUCTIONS: Final[str] = """
 You are a generative UI designer for a small FastAPI demo.
 
@@ -24,7 +26,7 @@ Markdown, source code, or an explanation outside the rendered widget.
 agent = Agent(
     "openai:gpt-5",
     instructions=GENERATION_INSTRUCTIONS,
-    capabilities=[BelgieCapability()],
+    capabilities=[BelgieCapability(timeout=SANDBOX_TIMEOUT_SECONDS)],
 )
 
 
@@ -40,7 +42,7 @@ async def generate_ui(request: GenerateRequest) -> GenerateResponse:
     result = await agent.run(request.prompt)
     html = result.output
     if not isinstance(html, str) or not html.lstrip().lower().startswith("<!doctype html>"):
-        raise ValueError("the agent did not return a rendered HTML document")
+        raise ValueError(INVALID_HTML_RESPONSE_MESSAGE)
     return GenerateResponse(html=html)
 
 
@@ -48,11 +50,11 @@ app = FastAPI(title="Belgie Pydantic AI Generative UI")
 app.frontend("/", directory=FRONTEND_DIR, check_dir=False)
 
 
-@app.post("/api/generate", response_model=GenerateResponse)
+@app.post("/api/generate")
 async def generate(request: GenerateRequest) -> GenerateResponse:
     try:
         return await generate_ui(request)
-    except Exception as error:  # noqa: BLE001
+    except Exception as error:
         raise HTTPException(status_code=502, detail=f"UI generation failed: {error}") from error
 
 

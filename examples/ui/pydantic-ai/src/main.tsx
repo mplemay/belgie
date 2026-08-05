@@ -1,22 +1,23 @@
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
+import type { FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 
 import "./styles.css";
 
-type GenerateResponse = {
+interface GenerateResponse {
   html: string;
-};
+}
 
-type ErrorResponse = {
+interface ErrorResponse {
   detail?: string;
-};
+}
 
 function isGenerateResponse(value: unknown): value is GenerateResponse {
   return typeof value === "object" && value !== null && "html" in value && typeof value.html === "string";
 }
 
 function isErrorResponse(value: unknown): value is ErrorResponse {
-  return typeof value === "object" && value !== null && (value.detail === undefined || typeof value.detail === "string");
+  return typeof value === "object" && value !== null && (!("detail" in value) || typeof value.detail === "string");
 }
 
 function App() {
@@ -28,7 +29,9 @@ function App() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmedPrompt = prompt.trim();
-    if (!trimmedPrompt || isGenerating) return;
+    if (!trimmedPrompt || isGenerating) {
+      return;
+    }
 
     setError("");
     setIsGenerating(true);
@@ -43,7 +46,9 @@ function App() {
         const message = isErrorResponse(payload) && payload.detail ? payload.detail : "The UI could not be generated.";
         throw new Error(message);
       }
-      if (!isGenerateResponse(payload)) throw new Error("The server returned an invalid UI document.");
+      if (!isGenerateResponse(payload)) {
+        throw new Error("The server returned an invalid UI document.");
+      }
       setHtml(payload.html);
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "The UI could not be generated.");
@@ -65,19 +70,39 @@ function App() {
             name="prompt"
             rows={5}
             value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
+            onChange={(event) => {
+              setPrompt(event.target.value);
+            }}
             placeholder="A calm reading list with three books, progress bars, and a weekly goal"
             disabled={isGenerating}
           />
-          <button type="submit" disabled={isGenerating || !prompt.trim()}>
+          <button
+            type="submit"
+            disabled={isGenerating || !prompt.trim()}
+          >
             {isGenerating ? "Generating..." : "Generate UI"}
           </button>
         </form>
-        {error && <p className="error" role="alert">{error}</p>}
+        {error && (
+          <p
+            className="error"
+            role="alert"
+          >
+            {error}
+          </p>
+        )}
       </section>
-      <section className="preview-panel" aria-busy={isGenerating} aria-live="polite">
+      <section
+        className="preview-panel"
+        aria-busy={isGenerating}
+        aria-live="polite"
+      >
         {html ? (
-          <iframe title="Generated UI preview" sandbox="allow-scripts" srcDoc={html} />
+          <iframe
+            title="Generated UI preview"
+            sandbox="allow-scripts"
+            srcDoc={html}
+          />
         ) : (
           <div className="empty-state">
             <span className="spark">✦</span>
@@ -89,4 +114,12 @@ function App() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+function mountApp(): void {
+  const element = document.querySelector("#root");
+  if (!(element instanceof HTMLElement)) {
+    throw new Error("The app root element was not found.");
+  }
+  createRoot(element).render(<App />);
+}
+
+window.onload = mountApp;
