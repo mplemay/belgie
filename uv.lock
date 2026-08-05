@@ -99,6 +99,7 @@ mcp = [
     { name = "pydantic" },
 ]
 pydantic-ai = [
+    { name = "anyio" },
     { name = "pydantic-ai-slim", extra = ["openai"] },
 ]
 
@@ -129,6 +130,7 @@ docs = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anyio", marker = "extra == 'pydantic-ai'", specifier = ">=4" },
     { name = "langchain", marker = "extra == 'langchain'", specifier = ">=1,<2" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2.0.0rc1" },
     { name = "mcp-types", marker = "extra == 'mcp'", specifier = ">=2.0.0rc1" },

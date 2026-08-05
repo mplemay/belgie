@@ -1,6 +1,6 @@
 # Pydantic AI
 
-Wires `BelgieCapability()` as a Pydantic AI capability so the agent gets a `run_code` tool for sandboxed JavaScript,
+Wires `BelgieSandbox()` as a Pydantic AI capability so the agent gets a `run_typescript` tool for sandboxed JavaScript,
 TypeScript, or TSX. The model writes a `belgie.Script` module and Belgie executes it in the embedded Deno runtime.
 
 Requires `belgie[pydantic-ai]` (included in this example's dependencies).
@@ -17,29 +17,24 @@ uv run main
 
 ## What's happening
 
-`BelgieCapability()` registers the `run_code` tool and sandbox instructions with the agent:
+`BelgieSandbox()` registers the `run_typescript` tool and sandbox instructions with the agent:
 
 ```python
 from pydantic_ai import Agent
 
-from belgie import RuntimeOptions, RuntimePermissions
-from belgie.pydantic_ai import BelgieCapability
-
-runtime_options = RuntimeOptions(
-    permissions=RuntimePermissions(allow_net=["hacker-news.firebaseio.com"]),
-)
+from belgie.pydantic_ai import BelgieSandbox
 
 agent = Agent(
     "openai:gpt-5",
     instructions=(
-        "You can execute JavaScript or TypeScript in a Deno sandbox with the run_code tool. "
+        "You can execute JavaScript or TypeScript in a Deno sandbox with the run_typescript tool. "
         "Use it when fetching data or transforming values is easier in JS/TS than in Python."
     ),
-    capabilities=[BelgieCapability(runtime_options=runtime_options)],
+    capabilities=[BelgieSandbox(allow_network=True)],
 )
 
 result = agent.run_sync(
-    "Use run_code with a TypeScript belgie.Script module that exports an async run function "
+    "Use run_typescript with a TypeScript belgie.Script module that exports an async run function "
     "to fetch the Hacker News top stories API and summarize the top headline.",
 )
 print(result.output)

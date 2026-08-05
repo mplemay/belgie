@@ -105,20 +105,21 @@ export default function run() {
 }
 ```
 
-## `run_code` times out
+## `run_typescript` or `run_code` times out
 
 Set a bounded timeout in the integration and reduce unbounded loops or network waits:
 
 ```python
-from belgie.pydantic_ai import BelgieCapability
+from belgie.pydantic_ai import BelgieSandbox
 
-capability = BelgieCapability(timeout=30)
+capability = BelgieSandbox(timeout=30)
 ```
 
 If the script needs network access, ensure the runtime configuration permits the requested host.
 
-The default agent runtime denies network access, so a timeout caused by an unreachable request may
-also indicate that the host was not added to `RuntimePermissions.allow_net`.
+The default Pydantic AI runtime denies network access. Set `allow_network=True` on `BelgieSandbox` only when
+unrestricted runtime network access is intended. LangChain applications should continue using their explicit
+`RuntimePermissions.allow_net` configuration.
 
 ## `@belgie/render` rejects the source
 
