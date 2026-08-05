@@ -44,7 +44,7 @@ nav:
   - CLI: cli.md
   - Packages:
       - "@belgie/mcp": packages/mcp.md
-      - "@belgie/render": packages/render.md
+      - "@belgie/vite": packages/vite.md
   - Examples:
       - examples/index.md
       # one page per example or themed group, pulling from examples/

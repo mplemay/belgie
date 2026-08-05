@@ -15,7 +15,8 @@ TSX. Use the embedded Deno runtime to add sandbox tools to Pydantic AI and LangC
 MCP Apps, or execute scripts directly from Python.
 
 - **AI agents:** Add sandboxed `run_typescript` for Pydantic AI or `run_code` for LangChain.
-- **Inline React widgets:** Return self-contained HTML from either agent integration with `@belgie/render`.
+- **Inline React widgets:** Return self-contained HTML from either agent integration with `render_widget`
+  (`@belgie/vite`).
 - **MCP Apps:** Connect Python MCP tools to React widgets and typed tool callers.
 - **Direct runtime:** Run scripts, resolve JavaScript dependencies, and invoke package binaries from Python.
 - **Embedded runtime:** Deno is bundled, so the Python runtime does not require Node.js.
@@ -210,35 +211,29 @@ asyncio.run(main())
 
 ## Inline widget rendering
 
-Pydantic AI and LangChain agents can return a complete inline React widget through their sandbox
-tools (`run_typescript` and `run_code`, respectively). The agent writes one TSX module and imports
-the standalone renderer:
+Pydantic AI and LangChain agents can return a complete inline React widget through the
+`render_widget` tool (alongside `run_typescript` / `run_code`). Enable rendering on the sandbox or
+middleware and pass a default-export TSX module — do not call `render()`:
 
 ```tsx
-import { render } from "npm:@belgie/render";
-
-function Widget() {
+export default function Widget() {
   return <main>Hello from Belgie</main>;
-}
-
-export default function run() {
-  return render({
-    widget: <Widget />,
-    plugins: [],
-  });
 }
 ```
 
-`render()` requests HTML from a Belgie-owned renderer side-channel (not from the model-visible Deno
-worker). The agent Script stays workspace-restricted — no host `/etc`/`/proc`, `allow_sys`, or
-`allow_ffi` — while Vite runs only in that host-mediated worker (workspace FFI/sys/write, no host
-path grants) and returns one self-contained HTML string with inline JavaScript, CSS, and assets.
-Package imports are supported. Relative host-file imports are intentionally unavailable, and Vite
-plugins run only during the server build, where their factories, hooks, and imports have the
-renderer worker's broader permissions. Treat them as reviewed application code and use
-`plugins: []` for untrusted agents. Plugin-only imports are removed from the browser bundle. This
-API is independent from `@belgie/mcp` and its path-based
-`widget.tsx` development and production flow.
+```python
+from belgie.pydantic_ai import BelgieSandbox
+
+capability = BelgieSandbox(enable_rendering=True, plugins=[])
+```
+
+`render_widget` builds HTML with `@belgie/vite` on a Belgie-owned renderer side-channel (not in the
+model-visible Deno worker). The agent Script stays workspace-restricted — no host `/etc`/`/proc`,
+`allow_sys`, or `allow_ffi` — while Vite runs only in that host-mediated worker (workspace
+FFI/sys/write, no host path grants) and returns one self-contained HTML string with inline
+JavaScript, CSS, and assets. Host-configured Vite plugins run only during the server build; treat
+them as reviewed application code and use `plugins=()` for untrusted agents. This API is independent
+from `@belgie/mcp` and its path-based `widget.tsx` development and production flow.
 
 ## Examples
 

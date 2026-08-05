@@ -28,6 +28,8 @@ from belgie.agent import (
 )
 from belgie.agent._run_code import (
     DEFAULT_BELGIE_CAPABILITY_ID,
+    RENDER_WIDGET_DESCRIPTION,
+    RENDER_WIDGET_TOOL_NAME,
     RUN_CODE_DESCRIPTION,
     resolved_description,
 )
@@ -137,7 +139,8 @@ def test_public_exports_are_limited() -> None:
     assert "TypeScript" in DEFAULT_RUN_CODE_INSTRUCTIONS
     assert "TSX" in DEFAULT_RUN_CODE_INSTRUCTIONS
     assert "Deno" in DEFAULT_RUN_CODE_INSTRUCTIONS
-    assert "npm:@belgie/render" in DEFAULT_RUN_CODE_INSTRUCTIONS
+    assert "render_widget" in DEFAULT_RUN_CODE_INSTRUCTIONS
+    assert "@belgie/vite" in RENDER_WIDGET_DESCRIPTION
 
 
 def test_rejects_conflicting_configuration() -> None:
@@ -155,7 +158,7 @@ def test_defer_loading_assigns_default_capability_id() -> None:
     middleware = BelgieMiddleware(defer_loading=True)
     assert middleware.capability_id == DEFAULT_BELGIE_CAPABILITY_ID
     tool_names = {tool.name for tool in middleware.tools}
-    assert tool_names == {LOAD_BELGIE_TOOL_NAME, RUN_CODE_TOOL_NAME}
+    assert tool_names == {LOAD_BELGIE_TOOL_NAME, RUN_CODE_TOOL_NAME, RENDER_WIDGET_TOOL_NAME}
 
 
 def test_resolved_description_appends_or_replaces_instructions() -> None:
@@ -169,7 +172,7 @@ def test_resolved_description_appends_or_replaces_instructions() -> None:
     assert resolved_description(replaced) == "Custom only."
 
 
-def test_tool_definition_exposes_typescript_run_code_only(
+def test_tool_definition_exposes_run_code_and_render_widget(
     belgie_middleware: BelgieMiddleware,
     runtime_context: Runtime[Any],
 ) -> None:
@@ -192,7 +195,7 @@ def test_tool_definition_exposes_typescript_run_code_only(
 
     assert len(captured) == 1
     visible_names = {tool.name for tool in captured[0] if isinstance(tool, BaseTool)}
-    assert visible_names == {RUN_CODE_TOOL_NAME}
+    assert visible_names == {RUN_CODE_TOOL_NAME, RENDER_WIDGET_TOOL_NAME}
     run_code_tool = next(tool for tool in captured[0] if isinstance(tool, BaseTool) and tool.name == RUN_CODE_TOOL_NAME)
     assert RUN_CODE_METADATA["code_arg_language"] in run_code_tool.description
     assert RUN_CODE_JSON_SCHEMA["required"] == ["code"]
@@ -330,9 +333,11 @@ async def test_agent_abatch_scopes_runtime_sessions_per_invocation() -> None:
 def test_deferred_exposes_load_belgie() -> None:
     middleware = BelgieMiddleware(defer_loading=True)
     tool_names = {tool.name for tool in middleware.tools}
-    assert tool_names == {LOAD_BELGIE_TOOL_NAME, RUN_CODE_TOOL_NAME}
+    assert tool_names == {LOAD_BELGIE_TOOL_NAME, RUN_CODE_TOOL_NAME, RENDER_WIDGET_TOOL_NAME}
     run_code_tool = next(tool for tool in middleware.tools if tool.name == RUN_CODE_TOOL_NAME)
     assert (run_code_tool.extras or {}).get("defer_loading") is True
+    render_widget_tool = next(tool for tool in middleware.tools if tool.name == RENDER_WIDGET_TOOL_NAME)
+    assert (render_widget_tool.extras or {}).get("defer_loading") is True
 
 
 async def test_wrap_tool_call_maps_errors_to_tool_message(

@@ -27,8 +27,8 @@ Runtime (context manager)
 | `Command` | Full Deno worker | Default `AllowAll` (inherits session options if configured) | Trusted npm CLI binaries (vite, esbuild, etc.) |
 
 Agent `run_code` sessions use a restricted Script Runtime plus a separate Belgie-owned renderer Runtime for
-`@belgie/render`. Model Scripts do not inherit Vite host-read, sys, or FFI grants; `render()` is completed on the
-renderer side-channel.
+`render_widget` (`@belgie/vite`). Model Scripts do not inherit Vite host-read, sys, or FFI grants; widget HTML is
+built on the renderer side-channel.
 
 Scripts do not expose built-in `fetch` or `Deno.*` APIs in the lightweight path. Package-worker Scripts apply
 `RuntimePermissions`. Commands inherit process stdio and typically run with unrestricted Deno permissions.
@@ -138,8 +138,8 @@ Import from `belgie.errors`.
 
 - **Scripts:** sandboxed by `RuntimePermissions` on the package-worker path; agent defaults deny host `/etc`/`/proc`,
   `allow_sys`, and `allow_ffi`. Lightweight Scripts are limited to module loading and V8 execution.
-- **Inline `@belgie/render`:** Vite runs on a Belgie-owned side-channel with workspace read/write/FFI and limited
-  `allow_sys` (no host `/etc`/`/proc`/`ldd`); model-visible Scripts never receive those grants.
+- **Inline `render_widget` (`@belgie/vite`):** Vite runs on a Belgie-owned side-channel with workspace read/write/FFI
+  and limited `allow_sys` (no host `/etc`/`/proc`/`ldd`); model-visible Scripts never receive those grants.
 - **Commands:** trusted project tooling only; full Deno/Node capabilities by default.
 
 For environment lifecycle details, see [environment.md](environment.md).

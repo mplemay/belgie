@@ -57,6 +57,5 @@ print(result["messages"][-1].content)
 See the [LangChain guide](../../../docs/agents/langchain.md) for deferred loading, retries, permissions, and
 runtime configuration.
 
-The same tool can return a self-contained React widget by exporting a TSX `run` function that returns
-`render({ widget: <Widget />, plugins: [] })` from `npm:@belgie/render`; see the
-[inline widget rendering guide](../../../docs/packages/render.md).
+With `enable_rendering=True`, the middleware exposes `render_widget` for a default-export TSX widget
+module; see the [inline widget rendering guide](../../../docs/packages/vite.md).

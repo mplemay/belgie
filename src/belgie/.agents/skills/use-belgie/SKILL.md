@@ -29,7 +29,7 @@ Invoke this skill when:
 - Bridging JSON data between Python and JavaScript
 - Diagnosing `BelgieRuntimeError`, `BelgieModuleError`, or `BelgieJavaScriptError` failures
 - Building MCP Apps with `BelgieExtension` and `belgie[mcp]`
-- Configuring `[tool.belgie.dependencies]` and `@belgie/mcp/vite` in pyproject / `vite.config.ts`
+- Configuring `[tool.belgie.dependencies]` and `@belgie/vite` in pyproject / `vite.config.ts`
 - Code imports `belgie`, `Runtime`, `Script`, `Environment`, or `Command`
 
 Do **not** use this skill for:
@@ -205,4 +205,4 @@ Agents commonly make these mistakes with belgie:
 - Passing non-JSON Python objects across the boundary (`Only JSON-serializable`).
 - Importing `BelgieRuntimeError` from top-level `belgie` instead of `belgie.errors`.
 - Treating successful `Command` calls as returning output; they return `None` on success.
-- Importing the Vite plugin from `@belgie/mcp` (browser entry) instead of `@belgie/mcp/vite`.
+- Importing the Vite plugin from `@belgie/mcp` (browser entry) instead of `@belgie/vite`.

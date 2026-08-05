@@ -6,7 +6,7 @@ includes the server, generated caller, widget entry, and Vite configuration in o
 ## What you will build
 
 - `BelgieExtension` registration with a `Path` to `widget.tsx`.
-- Vite configuration with `@belgie/mcp/vite`.
+- Vite configuration with `@belgie/vite`.
 - Generated typed callers and `useToolResult`.
 - A self-contained production widget build.
 

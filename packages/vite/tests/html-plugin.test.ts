@@ -9,10 +9,15 @@ describe("HTML helpers", () => {
   it("build a portable virtual widget entry", () => {
     expect(buildVirtualEntry(String.raw`C:\widgets\clock\widget.tsx`)).toBe(
       [
-        'import { mountWidget } from "@belgie/mcp";',
+        'import { createRoot } from "react-dom/client";',
+        'import { createElement, StrictMode } from "react";',
         'import Widget from "C:/widgets/clock/widget.tsx";',
         "",
-        "mountWidget(Widget);",
+        'const element = document.querySelector("#root");',
+        "if (!(element instanceof HTMLElement)) {",
+        '  throw new Error("Widget root #root was not found");',
+        "}",
+        "createRoot(element).render(createElement(StrictMode, null, createElement(Widget)));",
         "",
       ].join("\n"),
     );

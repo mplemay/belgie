@@ -59,7 +59,7 @@ untrusted code requires a separate kernel, filesystem, or network namespace.
 ## Configure packages, network, and rendering
 
 Package imports, network access, and rendering are separate options. Rendering also enables package
-resolution because `@belgie/render` must be installed:
+resolution because `@belgie/vite` must be installed:
 
 ```python
 from belgie.pydantic_ai import BelgieSandbox
@@ -68,6 +68,7 @@ capability = BelgieSandbox(
     allow_package_imports=True,
     allow_network=True,
     enable_rendering=True,
+    plugins=["npm:@tailwindcss/vite@latest"],
 )
 ```
 
@@ -75,24 +76,20 @@ capability = BelgieSandbox(
 runtime `fetch`. `allow_network=True` grants unrestricted runtime network access without granting
 host files or subprocesses.
 
-Rendering runs on a separate privileged renderer side channel. Model scripts remain workspace-restricted; use
-`plugins: []` for untrusted agents because model-selected renderer plugins can write under the workspace and load
-native code from installed packages.
+With `enable_rendering=True`, the capability exposes a `render_widget` tool. Pass a complete TSX
+module that default-exports a React component — do not call `render()`:
 
 ```tsx
-import { render } from "@belgie/render";
-
-function Widget() {
+export default function Widget() {
   return <main>Hello from Belgie</main>;
-}
-
-export default function run() {
-  return render({ widget: <Widget />, plugins: [] });
 }
 ```
 
-The returned HTML is ordinary tool output. Raise `max_output_bytes` when the rendered document is
-larger than the default limit.
+Rendering runs on a separate privileged renderer side channel. Model scripts remain
+workspace-restricted; use `plugins=()` for untrusted agents because configured renderer plugins can
+write under the workspace and load native code from installed packages. The returned HTML is
+ordinary tool output. Raise `max_output_bytes` when the rendered document is larger than the default
+limit.
 
 ## Reuse a session
 
@@ -163,6 +160,7 @@ BelgieSandbox(
     allow_package_imports=False,
     allow_network=False,
     enable_rendering=False,
+    plugins=(),
     max_old_generation_size_mb=128,
     timeout=30.0,
     max_output_bytes=50 * 1024,
@@ -191,4 +189,4 @@ to an injected session.
 
 - [AI agent overview](overview.md)
 - [Runtime](../runtime.md)
-- [@belgie/render](../packages/render.md)
+- [@belgie/vite](../packages/vite.md)

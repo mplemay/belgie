@@ -79,15 +79,6 @@ mod tests {
         })
     }
 
-    fn execute_string(handle: &DenoExecutionHandle) -> String {
-        with_python(|py| {
-            execute_sync(py, handle, empty_arguments())
-                .expect("script should execute")
-                .extract(py)
-                .expect("script should return a string")
-        })
-    }
-
     fn handle(bound: BoundRuntime) -> DenoExecutionHandle {
         DenoExecutionHandle::new(bound, LibWorkerFactoryRoots::default())
     }
@@ -201,37 +192,6 @@ mod tests {
             transpiled.contains("jsx") && transpiled.contains("main"),
             "automatic JSX should lower the JSX expression: {transpiled}"
         );
-    }
-
-    #[test]
-    fn renderer_context_is_frozen_read_only_and_isolated_per_script() {
-        let first_source = r#"export default function run() {
-  const key = Symbol.for("@belgie/render/context");
-  const context = globalThis[key];
-  const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
-  const readOnly = descriptor !== undefined
-    && descriptor.writable === false
-    && descriptor.configurable === false;
-  const inlineUrl = typeof context.url === "string"
-    && context.url.includes("__deno_python_inline__.ts");
-  return [
-    context.source.includes("first-marker"),
-    inlineUrl,
-    Object.isFrozen(context),
-    readOnly,
-  ].join("|");
-}
-// first-marker"#;
-        let second_source = r#"export default function run() {
-  const context = globalThis[Symbol.for("@belgie/render/context")];
-  return [context.source.includes("second-marker"), context.source.includes(["first", "marker"].join("-"))].join("|");
-}
-// second-marker"#;
-        let first = handle(bound_inline(first_source));
-        let second = handle(bound_inline(second_source));
-
-        assert_eq!(execute_string(&first), "true|true|true|true");
-        assert_eq!(execute_string(&second), "true|false");
     }
 
     #[test]

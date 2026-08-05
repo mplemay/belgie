@@ -8,14 +8,14 @@ from tempfile import TemporaryDirectory
 from types import TracebackType
 from typing import TYPE_CHECKING, Final, Self, cast
 
-from belgie import Environment, JsonOutput, Runtime, RuntimeOptions, RuntimePermissions, Script
+from belgie import Command, Environment, JsonOutput, Runtime, RuntimeOptions, RuntimePermissions, Script
 from belgie.agent._options import BelgieOptions
 from belgie.agent._run_code import SCRIPT_TIMEOUT_MESSAGE
 
 if TYPE_CHECKING:
     from belgie._core import AsyncRuntime
 
-# Vite needs these; libc probing uses a sanitized process.report stub in @belgie/render.
+# Vite needs these; libc probing uses a sanitized process.report stub in @belgie/vite.
 DEFAULT_VITE_SYS_PERMISSIONS: Final[tuple[str, ...]] = (
     "homedir",
     "uid",
@@ -25,10 +25,13 @@ DEFAULT_VITE_SYS_PERMISSIONS: Final[tuple[str, ...]] = (
     "systemMemoryInfo",
 )
 SESSION_NOT_ENTERED_MESSAGE: Final[str] = "Belgie runtime session must be entered before running scripts."
-DEFAULT_RENDER_SPECIFIER: Final[str] = "npm:@belgie/render"
-INLINE_MODULE_FILENAME: Final[str] = "__deno_python_inline__.tsx"
-RENDER_HOST_ENTRY: Final[str] = "node_modules/@belgie/render/dist/host.js"
-RENDER_REQUEST_KEY: Final[str] = "__belgie_render_request__"
+RENDERING_UNAVAILABLE_MESSAGE: Final[str] = (
+    "Widget rendering is unavailable: enable_rendering must be True on an owned session "
+    "(custom `runtime=` does not provide a renderer)."
+)
+DEFAULT_RENDER_SPECIFIER: Final[str] = "npm:@belgie/vite"
+DEFAULT_REACT_SPECIFIER: Final[str] = "npm:react@19.2.8"
+DEFAULT_REACT_DOM_SPECIFIER: Final[str] = "npm:react-dom@19.2.8"
 
 type AsyncExitArgs = tuple[
     type[BaseException] | None,
@@ -48,6 +51,7 @@ def _script_runtime_options(root: Path) -> RuntimeOptions:
 def _render_runtime_options(root: Path) -> RuntimeOptions:
     return RuntimeOptions(
         permissions=RuntimePermissions(
+            allow_env=[],
             allow_ffi=[str(root / "node_modules")],
             allow_net=["localhost"],
             allow_read=[str(root)],
@@ -62,14 +66,45 @@ def _temporary_workspace(stack: AsyncExitStack) -> Path:
     return Path(directory).resolve()
 
 
-def is_render_request(value: object) -> bool:
-    if not isinstance(value, dict):
-        return False
-    marker = value.get(RENDER_REQUEST_KEY)
-    return type(marker) is int and marker == 1
+def _dependency_specifier(specifier: str) -> str:
+    if specifier.startswith("npm:"):
+        return specifier
+    return f"npm:{specifier}"
 
 
-async def _drain_cancelled_task(task: asyncio.Task[JsonOutput]) -> None:
+def _package_name_from_specifier(specifier: str) -> str:
+    rest = specifier.removeprefix("npm:")
+    if rest.startswith("@"):
+        slash = rest.find("/")
+        if slash == -1:
+            message = f"Could not parse scoped package name from {specifier!r}."
+            raise ValueError(message)
+        after_scope = rest[slash + 1 :]
+        at = after_scope.find("@")
+        if at == -1:
+            return rest
+        return rest[: slash + 1 + at]
+    at = rest.find("@")
+    if at == -1:
+        return rest
+    if at == 0:
+        message = f"Could not parse package name from {specifier!r}."
+        raise ValueError(message)
+    return rest[:at]
+
+
+def _render_dependencies(plugins: tuple[str, ...]) -> dict[str, str]:
+    dependencies = {
+        "@belgie/vite": DEFAULT_RENDER_SPECIFIER,
+        "react": DEFAULT_REACT_SPECIFIER,
+        "react-dom": DEFAULT_REACT_DOM_SPECIFIER,
+    }
+    for plugin in plugins:
+        dependencies[_package_name_from_specifier(plugin)] = _dependency_specifier(plugin)
+    return dependencies
+
+
+async def _drain_cancelled_task(task: asyncio.Task[object]) -> None:
     task.cancel()
     with suppress(BaseException):
         await task
@@ -80,7 +115,6 @@ class BelgieRuntimeSession(BelgieOptions):
     _exit_stack: AsyncExitStack | None = field(default=None, init=False, repr=False)
     _active_runtime: AsyncRuntime | None = field(default=None, init=False, repr=False)
     _render_runtime: AsyncRuntime | None = field(default=None, init=False, repr=False)
-    _render_script: Script[[str, str], str] | None = field(default=None, init=False, repr=False)
     _workspace: Path | None = field(default=None, init=False, repr=False)
 
     async def __aenter__(self) -> Self:
@@ -101,7 +135,6 @@ class BelgieRuntimeSession(BelgieOptions):
         self._exit_stack = None
         self._active_runtime = None
         self._render_runtime = None
-        self._render_script = None
         self._workspace = None
         if stack is None:
             return None
@@ -111,8 +144,8 @@ class BelgieRuntimeSession(BelgieOptions):
         if self._active_runtime is None:
             raise RuntimeError(SESSION_NOT_ENTERED_MESSAGE)
         if self.timeout is None:
-            return await self._run_script(source)
-        task = asyncio.create_task(self._run_script(source))
+            return await self._active_runtime(Script(source))()
+        task = asyncio.create_task(self._active_runtime(Script(source))())
         try:
             return await asyncio.wait_for(task, timeout=self.timeout)
         except TimeoutError as error:
@@ -122,26 +155,40 @@ class BelgieRuntimeSession(BelgieOptions):
             await _drain_cancelled_task(task)
             raise
 
-    async def _run_script(self, source: str) -> JsonOutput:
-        runtime = self._active_runtime
-        assert runtime is not None  # noqa: S101
-        result = await runtime(Script(source))()
-        if not is_render_request(result):
-            return result
-        return await self._render_html(source)
+    async def render_widget(self, source: str) -> str:
+        if self._active_runtime is None:
+            raise RuntimeError(SESSION_NOT_ENTERED_MESSAGE)
+        render_runtime = self._render_runtime
+        workspace = self._workspace
+        if render_runtime is None or workspace is None or not self.enable_rendering:
+            raise RuntimeError(RENDERING_UNAVAILABLE_MESSAGE)
+        widget_path = workspace / "widget.tsx"
+        out_path = workspace / "widget.html"
+        widget_path.write_text(source, encoding="utf-8")
+        argv = ["--widget", str(widget_path), "--out", str(out_path)]
+        for plugin in self.plugins:
+            argv.extend(("--plugins", plugin))
 
-    async def _render_html(self, source: str) -> JsonOutput:
-        if self._render_runtime is None or self._workspace is None:
-            msg = (
-                "@belgie/render requested HTML, but this session has no renderer side-channel "
-                "(custom `runtime=` does not mediate rendering)."
-            )
-            raise RuntimeError(msg)
-        if self._render_script is None:
-            self._render_script = Script.from_file(self._workspace / RENDER_HOST_ENTRY)
-        # Belgie Runtime cwd is not Deno/process cwd; pass the workspace inline URL explicitly.
-        url = (self._workspace / INLINE_MODULE_FILENAME).resolve().as_uri()
-        return await self._render_runtime(self._render_script)(source, url)
+        async def _build() -> None:
+            await render_runtime(Command("@belgie/vite"))(*argv)
+
+        try:
+            if self.timeout is None:
+                await _build()
+            else:
+                task = asyncio.create_task(_build())
+                try:
+                    await asyncio.wait_for(task, timeout=self.timeout)
+                except TimeoutError as error:
+                    await _drain_cancelled_task(task)
+                    raise TimeoutError(SCRIPT_TIMEOUT_MESSAGE.format(timeout=self.timeout)) from error
+                except asyncio.CancelledError:
+                    await _drain_cancelled_task(task)
+                    raise
+            return out_path.read_text(encoding="utf-8")
+        finally:
+            widget_path.unlink(missing_ok=True)
+            out_path.unlink(missing_ok=True)
 
     async def _enter_runtimes(self, stack: AsyncExitStack) -> tuple[AsyncRuntime, AsyncRuntime | None]:
         if self.runtime is not None:
@@ -150,10 +197,12 @@ class BelgieRuntimeSession(BelgieOptions):
 
         if self.environment is None:
             root = _temporary_workspace(stack)
+            dependencies = _render_dependencies(self.plugins) if self.enable_rendering else None
             active_environment = await stack.enter_async_context(
-                Environment({"@belgie/render": DEFAULT_RENDER_SPECIFIER}, path=root),
+                Environment(dependencies, path=root),
             )
-            await active_environment.install()
+            if self.enable_rendering:
+                await active_environment.install()
         elif isinstance(self.environment, Environment):
             active_environment = await stack.enter_async_context(self.environment)
         else:
@@ -165,6 +214,8 @@ class BelgieRuntimeSession(BelgieOptions):
         script_runtime = await stack.enter_async_context(
             Runtime(env=active_environment, options=script_options),
         )
+        if not self.enable_rendering:
+            return script_runtime, None
         render_runtime = await stack.enter_async_context(
             Runtime(env=active_environment, options=_render_runtime_options(workspace)),
         )

@@ -87,4 +87,4 @@ timeouts or the agent integration's `timeout` option.
 
 - [Runtime](runtime.md)
 - [Environment](environment.md)
-- [Inline rendering with `@belgie/render`](packages/render.md)
+- [Inline rendering with `@belgie/vite`](packages/vite.md)

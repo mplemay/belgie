@@ -1,7 +1,8 @@
 # `@belgie/mcp`
 
 Use `@belgie/mcp` to build the browser side of a Belgie MCP App. It provides connected React
-widgets, typed MCP tool callers, host-context hooks, host actions, modal support, and a Vite plugin.
+widgets, typed MCP tool callers, host-context hooks, host actions, and modal support. Use
+[`@belgie/vite`](vite.md) for the Vite plugin that discovers and builds path-based widgets.
 
 Use this page for TypeScript and React APIs. Use [MCP Apps](../mcp-apps.md) for Python tool
 registration, Belgie project dependencies, and the server development and production workflow.
@@ -27,7 +28,7 @@ same JavaScript dependencies in `[tool.belgie.dependencies]` and install them wi
 | `@belgie/mcp` | `Widget`, `mountWidget`, tool-result hooks, host-context hooks, host actions, modals, and errors. |
 | `@belgie/mcp/codegen` | Generate typed caller source programmatically with `generateToolTypes()`. |
 | `@belgie/mcp/internal` | Runtime factories used by generated callers. Import this only when building compatible generated code. |
-| `@belgie/mcp/vite` | The `belgie()` Vite plugin. |
+| `@belgie/vite` | The `belgie()` Vite plugin. |
 | `@belgie/mcp/package.json` | Package metadata. |
 
 The public application surface is `@belgie/mcp`. Generated files import their runtime helpers from
@@ -72,7 +73,7 @@ hooks or helpers must be descendants of `Widget`. Use `fallback` for the connect
 Configure the plugin in a normal Vite configuration:
 
 ```ts {title="vite.config.ts"}
-import { belgie } from "@belgie/mcp/vite";
+import { belgie } from "@belgie/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
@@ -330,5 +331,5 @@ Vitest suite with V8 coverage, and checks the TypeScript API fixtures.
 
 - [MCP Apps](../mcp-apps.md)
 - [MCP Apps example](../examples/mcp.md)
-- [@belgie/render](render.md)
+- [@belgie/vite](vite.md)
 - [CLI](../cli.md)

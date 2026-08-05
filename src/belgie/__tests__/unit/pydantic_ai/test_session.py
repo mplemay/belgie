@@ -18,7 +18,7 @@ from belgie.pydantic_ai import (
 from belgie.pydantic_ai._session import (
     DEFAULT_RENDER_DEPENDENCIES,
     DEFAULT_VITE_SYS_PERMISSIONS,
-    RENDER_REQUEST_KEY,
+    package_name_from_specifier,
 )
 
 
@@ -71,13 +71,12 @@ async def test_package_imports_do_not_enable_runtime_network(fake_belgie) -> Non
 
 
 async def test_rendering_uses_side_channel_without_script_ffi(fake_belgie) -> None:
-    fake_belgie.result = {RENDER_REQUEST_KEY: 1}
-    source = "export default () => render({ widget: null, plugins: [] })"
+    source = "export default function Widget() { return null; }"
 
     async with BelgieSandboxSession(enable_rendering=True) as session:
         workspace = session.workspace
         assert workspace is not None
-        assert await session.run_script(source) == "<html>rendered</html>"
+        assert await session.render_widget(source) == "<html>rendered</html>"
         environment = fake_belgie.environments[0]
         assert environment.dependencies == DEFAULT_RENDER_DEPENDENCIES
         assert environment.options.allow_remote is True
@@ -89,25 +88,53 @@ async def test_rendering_uses_side_channel_without_script_ffi(fake_belgie) -> No
         render_permissions = fake_belgie.runtimes[1].options.permissions.kwargs
         assert render_permissions == {
             "allow_read": [str(workspace)],
+            "allow_env": [],
             "allow_net": ["localhost"],
             "allow_ffi": [str(workspace / "node_modules")],
             "allow_sys": list(DEFAULT_VITE_SYS_PERMISSIONS),
             "allow_write": [str(workspace)],
         }
-        assert fake_belgie.render_calls == [
-            (source, (workspace / "__deno_python_inline__.tsx").resolve().as_uri()),
+        assert fake_belgie.command_calls == [
+            (
+                "@belgie/vite",
+                (
+                    "--widget",
+                    str(workspace / "widget.tsx"),
+                    "--out",
+                    str(workspace / "widget.html"),
+                ),
+            ),
         ]
+        assert not (workspace / "widget.tsx").exists()
+        assert not (workspace / "widget.html").exists()
 
     assert all(runtime.exited for runtime in fake_belgie.runtimes)
 
 
-async def test_render_request_without_side_channel_is_an_execution_error(fake_belgie) -> None:
-    fake_belgie.result = {RENDER_REQUEST_KEY: 1}
+async def test_render_widget_without_side_channel_is_an_error(fake_belgie) -> None:
     runtime = fake_belgie.module.Runtime()
     session = BelgieSandboxSession(runtime=runtime)
     async with session:
-        with pytest.raises(BelgieSandboxExecutionError, match="no renderer side-channel"):
-            await session.run_script("export default () => render()")
+        with pytest.raises(BelgieSandboxError, match="Widget rendering is unavailable"):
+            await session.render_widget("export default function Widget() { return null; }")
+
+
+@pytest.mark.parametrize(
+    ("specifier", "name"),
+    [
+        ("npm:@belgie/vite", "@belgie/vite"),
+        ("@belgie/vite@1.2.3", "@belgie/vite"),
+        ("npm:react@19.2.8", "react"),
+        ("react", "react"),
+    ],
+)
+def test_package_name_from_specifier(specifier: str, name: str) -> None:
+    assert package_name_from_specifier(specifier) == name
+
+
+def test_package_name_from_specifier_rejects_jsr() -> None:
+    with pytest.raises(ValueError, match="JSR"):
+        package_name_from_specifier("jsr:@scope/pkg")
 
 
 async def test_custom_runtime_is_entered_without_workspace(fake_belgie) -> None:
