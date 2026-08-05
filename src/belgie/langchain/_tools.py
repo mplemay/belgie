@@ -6,7 +6,11 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from belgie.agent import LOAD_BELGIE_TOOL_NAME, RUN_CODE_TOOL_NAME, BelgieRuntimeSession, RunCodeInput
-from belgie.agent._run_code import load_belgie_tool_description
+from belgie.agent._run_code import (
+    RENDER_WIDGET_TOOL_NAME,
+    RenderWidgetInput,
+    load_belgie_tool_description,
+)
 from belgie.agent._runtime import SESSION_NOT_ENTERED_MESSAGE
 from belgie.langchain._state import BelgieAgentState, session_from_state
 
@@ -22,6 +26,18 @@ def _run_script_sync(session: BelgieRuntimeSession, code: str) -> Any:  # noqa: 
         return asyncio.run(session.run_script(code))
     msg = (
         "Belgie run_code cannot execute from an active event loop with synchronous agent invocation. "
+        "Use agent.ainvoke() instead."
+    )
+    raise RuntimeError(msg)
+
+
+def _render_widget_sync(session: BelgieRuntimeSession, source: str) -> str:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(session.render_widget(source))
+    msg = (
+        "Belgie render_widget cannot execute from an active event loop with synchronous agent invocation. "
         "Use agent.ainvoke() instead."
     )
     raise RuntimeError(msg)
@@ -47,6 +63,28 @@ def build_run_code_tool(
         return _run_script_sync(session, code)
 
     return run_code
+
+
+def build_render_widget_tool(
+    *,
+    description: str,
+    defer_loading: bool = False,
+) -> BaseTool:
+    extras = {"defer_loading": True} if defer_loading else None
+
+    @tool(
+        RENDER_WIDGET_TOOL_NAME,
+        description=description,
+        args_schema=RenderWidgetInput,
+        extras=extras,
+    )
+    def render_widget(source: str, runtime: ToolRuntime[Any, BelgieAgentState]) -> str:
+        session = session_from_state(runtime.state)
+        if session is None:
+            raise RuntimeError(SESSION_NOT_ENTERED_MESSAGE)
+        return _render_widget_sync(session, source)
+
+    return render_widget
 
 
 def build_load_belgie_tool(

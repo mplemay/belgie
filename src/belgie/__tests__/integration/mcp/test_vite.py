@@ -31,6 +31,7 @@ REACT_VERSION: Final[str] = "^19"
 VITE_REACT_PLUGIN_VERSION: Final[str] = "^6"
 TAILWIND_VERSION: Final[str] = "4.3.0"
 MCP_PACKAGE_PATH: Final[Path] = Path(__file__).resolve().parents[5] / "packages" / "mcp"
+VITE_PACKAGE_PATH: Final[Path] = Path(__file__).resolve().parents[5] / "packages" / "vite"
 
 
 @pytest.fixture(autouse=True)
@@ -43,6 +44,7 @@ def reset_vite_state() -> Iterator[None]:
 def widget_dependencies() -> dict[str, str]:
     return {
         "@belgie/mcp": f"file:{MCP_PACKAGE_PATH.resolve().as_posix()}",
+        "@belgie/vite": f"file:{VITE_PACKAGE_PATH.resolve().as_posix()}",
         "@modelcontextprotocol/ext-apps": "npm:@modelcontextprotocol/ext-apps@latest",
         "@tailwindcss/vite": f"npm:@tailwindcss/vite@{TAILWIND_VERSION}",
         "@vitejs/plugin-react": f"npm:@vitejs/plugin-react@{VITE_REACT_PLUGIN_VERSION}",
@@ -80,7 +82,7 @@ def write_vite_config(project: Path, *, tailwind: bool = False) -> None:
     (project / "vite.config.ts").write_text(
         f"""
 import {{ resolve }} from "node:path";
-import {{ belgie }} from "@belgie/mcp/vite";
+import {{ belgie }} from "@belgie/vite";
 import react from "@vitejs/plugin-react";
 {tailwind_import}import {{ defineConfig }} from "vite";
 
@@ -461,7 +463,7 @@ def test_vite_build_rejects_plugin_emitted_assets(tmp_path: Path, capfd: pytest.
     install_widget_project(project)
     (project / "vite.config.ts").write_text(
         """
-import { belgie } from "@belgie/mcp/vite";
+import { belgie } from "@belgie/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 

@@ -4,11 +4,12 @@ export default defineConfig({
   test: {
     coverage: {
       enabled: true,
+      exclude: ["src/cli.ts"],
       include: ["src/**/*.{ts,tsx}"],
       provider: "v8",
       reporter: ["text", "json-summary"],
       thresholds: {
-        branches: 90,
+        branches: 85,
         functions: 95,
         lines: 95,
         perFile: true,

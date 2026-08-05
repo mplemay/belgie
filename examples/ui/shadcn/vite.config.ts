@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { belgie } from "@belgie/mcp/vite";
+import { belgie } from "@belgie/vite";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";

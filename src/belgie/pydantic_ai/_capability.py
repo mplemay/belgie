@@ -13,10 +13,13 @@ from belgie.pydantic_ai._session import (
     DEFAULT_MAX_OLD_GENERATION_SIZE_MB,
     DEFAULT_TIMEOUT,
     BelgieSandboxSession,
+    _validate_plugins,
 )
 from belgie.pydantic_ai._toolset import DEFAULT_MAX_OUTPUT_BYTES, BelgieSandboxToolset
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from pydantic_ai.agent.abstract import AbstractAgent
     from pydantic_ai.toolsets import AgentToolset
 
@@ -51,6 +54,11 @@ def _validate_configuration(capability: BelgieSandbox[Any]) -> None:
         ("enable_rendering", capability.enable_rendering),
     ):
         _validate_bool(name, value)
+    plugins = _validate_plugins(capability.plugins)
+    if plugins and not capability.enable_rendering:
+        message = "plugins requires enable_rendering=True."
+        raise ValueError(message)
+    object.__setattr__(capability, "plugins", plugins)
     _validate_int(
         "max_old_generation_size_mb",
         capability.max_old_generation_size_mb,
@@ -72,6 +80,7 @@ def _validate_configuration(capability: BelgieSandbox[Any]) -> None:
                 ("allow_package_imports", capability.allow_package_imports, False),
                 ("allow_network", capability.allow_network, False),
                 ("enable_rendering", capability.enable_rendering, False),
+                ("plugins", plugins, ()),
                 (
                     "max_old_generation_size_mb",
                     capability.max_old_generation_size_mb,
@@ -93,6 +102,7 @@ class BelgieSandbox(AbstractCapability[AgentDepsT]):
     allow_package_imports: bool = False
     allow_network: bool = False
     enable_rendering: bool = False
+    plugins: Sequence[str] = ()
     max_old_generation_size_mb: int | None = DEFAULT_MAX_OLD_GENERATION_SIZE_MB
     timeout: float = DEFAULT_TIMEOUT
     max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES
@@ -118,7 +128,7 @@ class BelgieSandbox(AbstractCapability[AgentDepsT]):
             )
         if self.enable_rendering:
             package_text = (
-                "npm, JSR, and URL imports are enabled because rendering installs `@belgie/render` "
+                "npm, JSR, and URL imports are enabled because rendering installs `@belgie/vite` "
                 "(same remote package resolution as `allow_package_imports=True`)"
             )
         elif self.allow_package_imports:
@@ -127,7 +137,7 @@ class BelgieSandbox(AbstractCapability[AgentDepsT]):
             package_text = "npm, JSR, URL, and relative imports are disabled"
         network_text = "runtime network access is enabled" if self.allow_network else "runtime `fetch` is disabled"
         rendering_text = (
-            "; `@belgie/render` is installed for TSX rendering -- use `plugins: []` for untrusted agents"
+            "; use the `render_widget` tool with a default-export TSX module for inline React widgets"
             if self.enable_rendering
             else ""
         )
@@ -162,6 +172,7 @@ class BelgieSandbox(AbstractCapability[AgentDepsT]):
             allow_package_imports=self.allow_package_imports,
             allow_network=self.allow_network,
             enable_rendering=self.enable_rendering,
+            plugins=tuple(self.plugins),
             max_old_generation_size_mb=self.max_old_generation_size_mb,
             timeout=float(self.timeout),
             max_output_bytes=self.max_output_bytes,

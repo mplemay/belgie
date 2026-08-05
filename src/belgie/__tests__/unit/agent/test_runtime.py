@@ -6,25 +6,7 @@ from pathlib import Path
 import pytest
 
 from belgie.agent import BelgieRuntimeSession, _runtime as agent_runtime
-from belgie.agent._runtime import (
-    DEFAULT_VITE_SYS_PERMISSIONS,
-    RENDER_REQUEST_KEY,
-    _render_runtime_options,
-    is_render_request,
-)
-
-
-def test_is_render_request_accepts_integer_sentinel() -> None:
-    assert is_render_request({RENDER_REQUEST_KEY: 1})
-
-
-def test_is_render_request_rejects_bool_float_and_non_dicts() -> None:
-    assert not is_render_request({RENDER_REQUEST_KEY: True})
-    assert not is_render_request({RENDER_REQUEST_KEY: 1.0})
-    assert not is_render_request({RENDER_REQUEST_KEY: 0})
-    assert not is_render_request({})
-    assert not is_render_request("not-a-dict")
-    assert not is_render_request(None)
+from belgie.agent._runtime import DEFAULT_VITE_SYS_PERMISSIONS, _render_runtime_options
 
 
 def test_render_runtime_options_omit_host_path_grants(tmp_path: Path) -> None:

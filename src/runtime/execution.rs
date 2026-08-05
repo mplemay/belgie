@@ -27,7 +27,6 @@ use crate::runtime::bound_runtime::BoundPackageEnvironment;
 
 type ExecutionResult<T> = Result<T, BindingError>;
 
-const RENDER_CONTEXT_SYMBOL: &str = "@belgie/render/context";
 const SAFE_PROCESS_ENVIRONMENT: [(&str, &str); 3] = [
     ("APPVEYOR", "1"),
     ("NODE_ENV", "production"),
@@ -378,12 +377,9 @@ impl DenoExecutionContext {
             return Ok(());
         }
 
-        if self.bound.script().media_type() == deno_ast::MediaType::Tsx
-            || self.bound.script().content().contains("@belgie/render")
-        {
+        if self.bound.script().media_type() == deno_ast::MediaType::Tsx {
             self.install_safe_process_environment()?;
         }
-        self.install_render_context()?;
 
         let module_id = match &mut self.backend {
             ExecutionBackend::Package(worker) => {
@@ -416,43 +412,6 @@ impl DenoExecutionContext {
         let run_function = resolve_run_function(self.js_runtime(), namespace, &description)?;
 
         self.run_function = Some(run_function);
-        Ok(())
-    }
-
-    fn install_render_context(&mut self) -> ExecutionResult<()> {
-        let source = self.bound.script().content().to_string();
-        let url = self.main_module.to_string();
-        deno_core::scope!(scope, self.js_runtime());
-
-        let context = v8::Object::new(scope);
-        let version = v8::Integer::new(scope, 1);
-        define_context_property(scope, context, "version", version.into())?;
-        let source_value = v8::String::new(scope, &source)
-            .ok_or_else(|| BindingError::runtime("Could not create render context source"))?;
-        define_context_property(scope, context, "source", source_value.into())?;
-        let url_value = v8::String::new(scope, &url)
-            .ok_or_else(|| BindingError::runtime("Could not create render context URL"))?;
-        define_context_property(scope, context, "url", url_value.into())?;
-        if !context
-            .set_integrity_level(scope, v8::IntegrityLevel::Frozen)
-            .unwrap_or(false)
-        {
-            return Err(BindingError::runtime("Could not freeze render context"));
-        }
-
-        let symbol_name = v8::String::new(scope, RENDER_CONTEXT_SYMBOL)
-            .ok_or_else(|| BindingError::runtime("Could not create render context symbol"))?;
-        let symbol = v8::Symbol::for_key(scope, symbol_name);
-        let global = scope.get_current_context().global(scope);
-        let attributes = v8::PropertyAttribute::READ_ONLY
-            | v8::PropertyAttribute::DONT_ENUM
-            | v8::PropertyAttribute::DONT_DELETE;
-        if !global
-            .define_own_property(scope, symbol.into(), context.into(), attributes)
-            .unwrap_or(false)
-        {
-            return Err(BindingError::runtime("Could not install render context"));
-        }
         Ok(())
     }
 
@@ -503,30 +462,6 @@ impl DenoExecutionContext {
         }
         Ok(())
     }
-}
-
-fn define_context_property<'s, 'i>(
-    scope: &mut v8::PinScope<'s, 'i>,
-    object: v8::Local<'s, v8::Object>,
-    name: &str,
-    value: v8::Local<'s, v8::Value>,
-) -> ExecutionResult<()> {
-    let key = v8::String::new(scope, name)
-        .ok_or_else(|| BindingError::runtime("Could not create render context key"))?;
-    if !object
-        .define_own_property(
-            scope,
-            key.into(),
-            value,
-            v8::PropertyAttribute::READ_ONLY | v8::PropertyAttribute::DONT_DELETE,
-        )
-        .unwrap_or(false)
-    {
-        return Err(BindingError::runtime(format!(
-            "Could not define render context property {name}",
-        )));
-    }
-    Ok(())
 }
 
 async fn evaluate_loaded_module(

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Self
@@ -10,7 +10,7 @@ from typing import Any, Self
 class FakeBelgie:
     def __init__(self) -> None:
         self.result: object = {"ok": True}
-        self.render_result: object = "<html>rendered</html>"
+        self.render_result: str = "<html>rendered</html>"
         self.script_error: Exception | None = None
         self.render_error: Exception | None = None
         self.start_error: BaseException | None = None
@@ -24,7 +24,7 @@ class FakeBelgie:
         self.environments: list[_Environment] = []
         self.runtimes: list[_Runtime] = []
         self.scripts: list[str] = []
-        self.render_calls: list[tuple[str, str]] = []
+        self.command_calls: list[tuple[str, tuple[str, ...]]] = []
         self.module = SimpleNamespace(
             Environment=_EnvironmentFactory(self),
             EnvironmentOptions=_EnvironmentOptions,
@@ -32,6 +32,7 @@ class FakeBelgie:
             RuntimeOptions=_RuntimeOptions,
             RuntimePermissions=_RuntimePermissions,
             Script=_Script,
+            Command=_Command,
         )
 
 
@@ -47,6 +48,7 @@ class _RuntimePermissions:
         *,
         allow_read: Sequence[str] | None = None,
         allow_net: Sequence[str] | None = None,
+        allow_env: Sequence[str] | None = None,
         allow_ffi: Sequence[str] | None = None,
         allow_sys: Sequence[str] | None = None,
         allow_write: Sequence[str] | None = None,
@@ -56,6 +58,7 @@ class _RuntimePermissions:
         }
         for name, value in (
             ("allow_net", allow_net),
+            ("allow_env", allow_env),
             ("allow_ffi", allow_ffi),
             ("allow_sys", allow_sys),
             ("allow_write", allow_write),
@@ -118,21 +121,47 @@ class _Script:
         return cls("", from_path=Path(path))
 
 
+class _Command:
+    def __init__(
+        self,
+        name: str,
+        *,
+        cwd: str | Path | None = None,
+        env: Mapping[str, str] | None = None,
+        module: bool = False,
+    ) -> None:
+        self.name = name
+        self.cwd = cwd
+        self.env = env
+        self.module = module
+
+
 class _ActiveRuntime:
     def __init__(self, control: FakeBelgie, *, is_render: bool) -> None:
         self.control = control
         self.is_render = is_render
 
-    def __call__(self, script: _Script) -> Callable[..., Any]:
-        async def run(*args: object) -> object:
-            if self.is_render:
-                source = args[0] if args else ""
-                url = args[1] if len(args) > 1 else ""
-                self.control.render_calls.append((str(source), str(url)))
+    def __call__(self, target: object) -> Callable[..., Any]:  # noqa: C901
+        if isinstance(target, _Command):
+
+            async def run_command(*args: str) -> None:
+                self.control.command_calls.append((target.name, args))
                 if self.control.render_error is not None:
                     raise self.control.render_error
-                return self.control.render_result
-            self.control.scripts.append(script.content)
+                out: str | None = None
+                for index, arg in enumerate(args):
+                    if arg == "--out" and index + 1 < len(args):
+                        out = args[index + 1]
+                        break
+                if out is not None:
+                    Path(out).write_text(self.control.render_result, encoding="utf-8")  # noqa: ASYNC240
+
+            return run_command
+
+        async def run(*args: object) -> object:
+            del args
+            assert isinstance(target, _Script)
+            self.control.scripts.append(target.content)
             if self.control.script_started is not None:
                 self.control.script_started.set()
             if self.control.hang:

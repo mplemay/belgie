@@ -27,7 +27,7 @@ nav:
   - CLI: cli.md
   - Packages:
       - "@belgie/mcp": packages/mcp.md
-      - "@belgie/render": packages/render.md
+      - "@belgie/vite": packages/vite.md
   - Examples:
       - Overview: examples/index.md
       - Basic Runtime: examples/basic.md

@@ -227,7 +227,7 @@ src/mcp_app/views/
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { belgie } from "@belgie/mcp/vite"
+import { belgie } from "@belgie/vite"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
 

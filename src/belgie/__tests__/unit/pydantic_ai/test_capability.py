@@ -69,7 +69,8 @@ def test_instructions_reflect_configuration() -> None:
     assert strict is not None
     assert "imports are disabled" in strict
     assert "fetch` is disabled" in strict
-    assert "@belgie/render" not in strict
+    assert "@belgie/vite" not in strict
+    assert "render_widget" not in strict
 
     open_profile = BelgieSandbox(
         allow_package_imports=True,
@@ -81,8 +82,8 @@ def test_instructions_reflect_configuration() -> None:
     assert open_profile is not None
     assert "imports are enabled" in open_profile
     assert "network access is enabled" in open_profile
-    assert "@belgie/render" in open_profile
-    assert "plugins: []" in open_profile
+    assert "@belgie/vite" in open_profile
+    assert "render_widget" in open_profile
     assert "12s deadline" in open_profile
 
     assert BelgieSandbox(instructions="Custom.").get_instructions() == "Custom."

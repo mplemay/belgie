@@ -1,16 +1,18 @@
 {
   "author": "Matt LeMay <mplemay@users.noreply.github.com>",
+  "bin": {
+    "@belgie/vite": "./dist/cli.js"
+  },
   "bugs": {
     "url": "https://github.com/mplemay/belgie/issues"
   },
   "dependencies": {
     "@vitejs/plugin-react": "6.0.5",
-    "magic-string": "^0.30.21",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "vite": "^8.2.0"
   },
-  "description": "Self-contained inline React widget rendering for Belgie run_code tools.",
+  "description": "Vite plugin and CLI for Belgie React widgets.",
   "devDependencies": {
     "@arethetypeswrong/core": "^0.18.5",
     "@types/node": "26.1.2",
@@ -27,23 +29,25 @@
   },
   "exports": {
     ".": "./dist/index.js",
-    "./host": "./dist/host.js",
     "./package.json": "./package.json"
   },
   "files": [
     "dist"
   ],
-  "homepage": "https://github.com/mplemay/belgie#inline-widget-rendering",
+  "homepage": "https://github.com/mplemay/belgie#readme",
   "license": "MIT",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
-  "name": "@belgie/render",
+  "name": "@belgie/vite",
+  "peerDependencies": {
+    "vite": ">=8"
+  },
   "private": false,
   "publishConfig": {
     "access": "public"
   },
   "repository": {
-    "directory": "packages/render",
+    "directory": "packages/vite",
     "type": "git",
     "url": "https://github.com/mplemay/belgie"
   },

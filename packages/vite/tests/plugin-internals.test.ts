@@ -14,7 +14,7 @@ test("reports non-Error widget rescan failures", async () => {
       throw "raw rescan failure";
     },
   }));
-  const { belgie } = await import("../src/vite.ts");
+  const { belgie } = await import("../src/plugin.ts");
   const errors: string[] = [];
   const server = {
     config: {

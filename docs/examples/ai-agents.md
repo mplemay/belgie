@@ -56,22 +56,16 @@ See [`examples/ai/langchain`](https://github.com/mplemay/belgie/tree/main/exampl
 
 ## Render an inline widget
 
-To try inline rendering, ask the agent for a TSX module that returns `render(...)`:
+To try inline rendering, ask the agent to call `render_widget` with a default-export TSX module:
 
 ```tsx
-import { render } from "npm:@belgie/render";
-
-function Widget() {
+export default function Widget() {
   return <main>Rendered by Belgie</main>;
-}
-
-export default function run() {
-  return render({ widget: <Widget />, plugins: [] });
 }
 ```
 
-The result is self-contained HTML. It uses the host renderer described in
-[@belgie/render](../packages/render.md), not the path-based MCP widget build.
+The result is self-contained HTML. It uses the `@belgie/vite` CLI described in
+[@belgie/vite](../packages/vite.md), not the path-based MCP widget build.
 
 ## See also
 

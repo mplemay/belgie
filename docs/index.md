@@ -87,5 +87,5 @@ choose the [Pydantic AI](agents/pydantic-ai.md) or [LangChain](agents/langchain.
 - Follow [Install](install.md) to choose extras and verify the runtime.
 - Learn how [Runtime](runtime.md), [Script](script.md), and [Environment](environment.md) fit together.
 - Build the [MCP Apps example](examples/mcp.md).
-- Read about [inline React rendering](packages/render.md) for agent-authored widgets.
+- Read about [inline React rendering](packages/vite.md) for agent-authored widgets.
 - Use [Troubleshooting](troubleshooting.md) when setup or runtime errors need diagnosis.

@@ -10,7 +10,6 @@ test("publishes the expected ESM export map and declarations", async () => {
     "./codegen": "./dist/codegen.js",
     "./internal": "./dist/internal.js",
     "./package.json": "./package.json",
-    "./vite": "./dist/vite.js",
   });
   assert.equal(packageJson.bin["belgie-mcp"], "./dist/cli.js");
   assert.equal(packageJson.main, "./dist/index.js");
@@ -18,7 +17,7 @@ test("publishes the expected ESM export map and declarations", async () => {
   assert.equal(packageJson.types, "./dist/index.d.ts");
   assert.equal(packageJson.publishConfig.access, "public");
 
-  for (const entry of ["index", "codegen", "internal", "vite", "cli"]) {
+  for (const entry of ["index", "codegen", "internal", "cli"]) {
     assert.equal(existsSync(`dist/${entry}.js`), true);
     assert.equal(existsSync(`dist/${entry}.d.ts`), true);
   }
@@ -36,7 +35,6 @@ test("publishes the expected ESM export map and declarations", async () => {
   assert.equal(typeof codegen.generateToolTypes, "function");
   assert.equal(typeof codegen.generateToolTypesFromSchemas, "function");
   assert.equal(typeof (await import("@belgie/mcp/internal")).createGeneratedTool, "function");
-  assert.equal(typeof (await import("@belgie/mcp/vite")).belgie, "function");
 });
 
 test("resolves declarations from every built package subpath", () => {
@@ -49,10 +47,9 @@ test("resolves declarations from every built package subpath", () => {
         'import { Widget, type ToolCallResult } from "@belgie/mcp";',
         'import { generateToolTypes } from "@belgie/mcp/codegen";',
         'import { createGeneratedRawTool } from "@belgie/mcp/internal";',
-        'import { belgie } from "@belgie/mcp/vite";',
         'const result: ToolCallResult<string> = { result: "ok", error: undefined };',
         'void <Widget metadata={{ name: "fixture", version: "1.0.0" }}>{result.result}</Widget>;',
-        "void generateToolTypes; void createGeneratedRawTool; void belgie;",
+        "void generateToolTypes; void createGeneratedRawTool;",
       ].join("\n"),
     );
     const result = spawnSync(

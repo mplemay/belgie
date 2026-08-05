@@ -15,13 +15,38 @@ def _stub_default_render_specifier(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Unit tests enter default sessions often; avoid installing the real Vite stack.
-    package = tmp_path_factory.mktemp("belgie-render-stub")
+    package = tmp_path_factory.mktemp("belgie-vite-stub")
     (package / "package.json").write_text(
-        json.dumps({"name": "@belgie/render", "version": "0.0.0", "type": "module", "exports": {".": "./index.js"}}),
+        json.dumps(
+            {
+                "name": "@belgie/vite",
+                "version": "0.0.0",
+                "type": "module",
+                "bin": {"@belgie/vite": "./cli.js"},
+                "exports": {".": "./index.js"},
+            },
+        ),
         encoding="utf-8",
     )
-    (package / "index.js").write_text("export function render() { return Promise.resolve(''); }\n", encoding="utf-8")
-    monkeypatch.setattr("belgie.agent._runtime.DEFAULT_RENDER_SPECIFIER", f"file:{package.resolve()}")
+    (package / "index.js").write_text("export {};\n", encoding="utf-8")
+    (package / "cli.js").write_text(
+        """\
+import { writeFileSync } from "node:fs";
+
+const args = process.argv.slice(2);
+const outIndex = args.indexOf("--out");
+if (outIndex !== -1 && args[outIndex + 1] !== undefined) {
+  writeFileSync(args[outIndex + 1], "", "utf8");
+}
+""",
+        encoding="utf-8",
+    )
+    specifier = f"file:{package.resolve()}"
+    monkeypatch.setattr("belgie.agent._runtime.DEFAULT_RENDER_SPECIFIER", specifier)
+    monkeypatch.setattr(
+        "belgie.agent._runtime._render_dependencies",
+        lambda _plugins: {"@belgie/vite": specifier},
+    )
 
 
 @pytest.fixture

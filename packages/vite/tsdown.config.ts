@@ -8,10 +8,14 @@ export default defineConfig({
   clean: true,
   dts: true,
   entry: {
-    host: "src/host.ts",
+    cli: "src/cli.ts",
     index: "src/index.ts",
   },
   exports: {
+    bin: {
+      "@belgie/vite": "src/cli.ts",
+    },
+    exclude: ["cli"],
     legacy: true,
     packageJson: true,
   },

@@ -36,6 +36,7 @@ output = "src/shadcn/views/widgets/tools.ts"
 [tool.belgie.dependencies]
 "@base-ui/react" = "npm:@base-ui/react@^1.6.0"
 "@belgie/mcp" = "file:../../../packages/mcp"
+"@belgie/vite" = "file:../../../packages/vite"
 "@fontsource-variable/geist" = "npm:@fontsource-variable/geist@^5.3.0"
 "@modelcontextprotocol/ext-apps" = "npm:@modelcontextprotocol/ext-apps@^1.7.5"
 "@modelcontextprotocol/sdk" = "npm:@modelcontextprotocol/sdk@^1.30.0"
