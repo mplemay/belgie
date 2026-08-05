@@ -36,21 +36,19 @@ The public application surface is `@belgie/mcp`. Generated files import their ru
 ## Build a widget
 
 Widgets are discovered below the configured source directory at `<name>/widget.tsx`. The file must
-have a default export. `mountWidget` renders that component into the root element created by the
-Belgie Vite plugin:
+have a default export. The generated Vite entry imports that component and calls `mountWidget` for
+you:
 
 ```tsx {title="src/widgets/weather/widget.tsx"}
-import { Widget, mountWidget } from "@belgie/mcp";
+import { Widget } from "@belgie/mcp";
 
-function Weather() {
+export default function Weather() {
   return (
     <Widget metadata={{ name: "Weather", version: "1.0.0" }}>
       <main>Ready</main>
     </Widget>
   );
 }
-
-mountWidget(Weather);
 ```
 
 For a React entry that is mounted by another application, export the component instead and let the
@@ -67,6 +65,9 @@ export default function Weather() {
   );
 }
 ```
+
+Use `mountWidget` directly only when you own the HTML entry and are not using the discovered
+`<srcDir>/<name>/widget.tsx` convention.
 
 `Widget` connects to the MCP Apps host before rendering its children. Children that use host-bound
 hooks or helpers must be descendants of `Widget`. Use `fallback` for the connecting state and

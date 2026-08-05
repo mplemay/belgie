@@ -30,18 +30,19 @@ The package is ESM-only and requires Node.js 22 or newer for its development and
 Widgets are discovered at `<srcDir>/<name>/widget.tsx` and must have a default export:
 
 ```tsx
-import { Widget, mountWidget } from "@belgie/mcp";
+import { Widget } from "@belgie/mcp";
 
-function Weather() {
+export default function Weather() {
   return (
     <Widget metadata={{ name: "Weather", version: "1.0.0" }}>
       <main>Ready</main>
     </Widget>
   );
 }
-
-mountWidget(Weather);
 ```
+
+The generated Vite entry calls `mountWidget` for discovered widgets. Use `mountWidget` directly
+only when you own the HTML entry and are not using the `<srcDir>/<name>/widget.tsx` convention.
 
 Configure the plugin in a normal Vite configuration:
 
