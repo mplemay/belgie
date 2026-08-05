@@ -8,18 +8,22 @@ repo_url: https://github.com/mplemay/belgie
 edit_uri: edit/main/docs/
 
 nav:
-  - Home: index.md
-  - Install: install.md
+  - Overview:
+      - Home: index.md
+      - Install: install.md
+      - Help: help.md
+      - Troubleshooting: troubleshooting.md
   - Core Concepts:
       - Runtime: runtime.md
       - Script: script.md
       - Environment: environment.md
       - Command: command.md
-  - MCP Apps: mcp-apps.md
-  - AI Agents:
-      - Overview: agents/overview.md
-      - Pydantic AI: agents/pydantic-ai.md
-      - LangChain: agents/langchain.md
+  - Integrations:
+      - MCP Apps: mcp-apps.md
+      - AI Agents:
+          - Overview: agents/overview.md
+          - Pydantic AI: agents/pydantic-ai.md
+          - LangChain: agents/langchain.md
   - CLI: cli.md
   - Packages:
       - "@belgie/mcp": packages/mcp.md
@@ -29,8 +33,6 @@ nav:
       - Basic Runtime: examples/basic.md
       - MCP Apps: examples/mcp.md
       - AI Agents: examples/ai-agents.md
-  - Help: help.md
-  - Troubleshooting: troubleshooting.md
   - Project:
       - Contributing: contributing.md
       - Changelog: changelog.md
@@ -44,26 +46,29 @@ extra:
     - icon: fontawesome/brands/github
       link: https://github.com/mplemay/belgie
 
+extra_css:
+  - extra/tweaks.css
+
 theme:
   name: material
   palette:
     - media: "(prefers-color-scheme)"
-      primary: blue
-      accent: blue
+      primary: pink
+      accent: pink
       toggle:
         icon: material/brightness-auto
         name: Switch to light mode
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: blue
-      accent: blue
+      primary: pink
+      accent: pink
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: blue
-      accent: blue
+      primary: pink
+      accent: pink
       toggle:
         icon: material/brightness-4
         name: Switch to system preference
