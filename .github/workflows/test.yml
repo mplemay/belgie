@@ -49,8 +49,8 @@ jobs:
         working-directory: packages/mcp
         run: npm ci
 
-      - name: Install @belgie/render dependencies
-        working-directory: packages/render
+      - name: Install @belgie/vite dependencies
+        working-directory: packages/vite
         run: npm ci
 
       - name: Install tanstack example frontend dependencies
@@ -114,8 +114,8 @@ jobs:
           npm ci
           npm test
 
-      - name: Test @belgie/render
-        working-directory: packages/render
+      - name: Test @belgie/vite
+        working-directory: packages/vite
         run: |
           npm ci
           npm test

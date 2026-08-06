@@ -52,12 +52,10 @@ await app.sendMessage({ role: "user", content: [{ type: "text", text: "Hello" }]
 
 ## Generate typed tools
 
-With the MCP server running, regenerate the committed named tool module:
+Regenerate the committed named tool module from the local Python server:
 
 ```bash
-uv run belgie run belgie-mcp generate \
-  http://127.0.0.1:3002/mcp \
-  --output src/shadcn/views/widgets/tools.ts
+uv run belgie generate
 ```
 
 The Python tool keeps its content-returning signature:
@@ -110,7 +108,7 @@ src/shadcn/views/
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { belgie } from "@belgie/mcp/vite"
+import { belgie } from "@belgie/vite"
 import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"

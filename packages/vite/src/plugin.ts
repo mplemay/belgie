@@ -10,6 +10,8 @@ import { assertNoInvalidWidgets, assertUniqueWidgetNames, scanWidgetsSync } from
 import type { WidgetCandidate } from "./scan-widgets.js";
 import { hasDefaultExport } from "./validate-widget.js";
 
+// Project-mode Vite plugin for path-based widgets (<srcDir>/<name>/widget.tsx).
+
 const VIRTUAL_PREFIX = "/_belgie/widget/";
 const VIRTUAL_MODULE_PREFIX = "\0belgie:widget:";
 const ORCHESTRATION_ENTRY_ID = "belgie:widget-build-orchestrator";

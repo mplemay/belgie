@@ -1,11 +1,11 @@
 # Command
 
-Use `Command` to run an installed JavaScript package binary, such as Vite, through a Belgie
-[`Runtime`](runtime.md). Commands use the same `Environment` dependency and permission boundary as
-scripts.
+Use `Command` when Python needs to run an installed JavaScript package binary, such as Vite, through
+a Belgie [`Runtime`](runtime.md). Commands use the same `Environment` dependency and permission
+boundary as scripts.
 
-Use a [`Script`](script.md) when Python needs a return value from JavaScript. Use `Command` when the
-package exposes a process-style tool whose output should be handled as command output.
+Use a [`Script`](script.md) when Python needs a value from JavaScript. Use `Command` when the package
+exposes a process-style tool whose output should be handled as command output.
 
 ## Run an installed binary
 

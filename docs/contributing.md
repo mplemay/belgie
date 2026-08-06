@@ -1,7 +1,7 @@
 # Contributing
 
 Belgie combines Python bindings, Rust runtime code, TypeScript packages, examples, and published
-documentation. Keep changes narrow and validate the layer you touch.
+documentation. Keep a change focused on the layer it affects and validate the user-facing path.
 
 ## Set up the repository
 
@@ -12,7 +12,7 @@ uv sync
 ```
 
 The repository targets Python 3.12 or newer within its supported range. The bundled Deno runtime
-and Rust extension are built through the project’s normal tooling.
+and Rust extension are built through the project's normal tooling.
 
 ## Run checks
 
@@ -35,7 +35,7 @@ uv run --no-project mkdocs build --strict
 
 ## Documentation changes
 
-Follow the repository’s `docs/agents.md` instructions for documentation information architecture,
+Follow the repository's `docs/agents.md` instructions for documentation information architecture,
 writing style, code examples, navigation, and validation rules. Keep that file excluded from the
 published site.
 

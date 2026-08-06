@@ -185,7 +185,7 @@ fn dependency_imports(
             PackageDependencyKind::ImportMap { specifier } => {
                 imports.insert(dep.alias.clone(), specifier.clone());
                 // Deno import maps need a trailing-slash prefix for subpath imports
-                // (e.g. `@belgie/mcp/vite` → `npm:@belgie/mcp@0.1.0/vite`).
+                // (e.g. `@belgie/mcp/codegen` → `npm:@belgie/mcp@0.1.0/codegen`).
                 imports.insert(
                     format!("{}/", dep.alias),
                     format!("{}/", specifier.trim_end_matches('/')),

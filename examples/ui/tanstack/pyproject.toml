@@ -34,6 +34,7 @@ editable = true
 module = true
 [tool.belgie.dependencies]
 "@belgie/mcp" = 'file:../../../packages/mcp'
+"@belgie/vite" = 'file:../../../packages/vite'
 "@modelcontextprotocol/ext-apps" = 'npm:@modelcontextprotocol/ext-apps@^1.7.5'
 "@modelcontextprotocol/sdk" = 'npm:@modelcontextprotocol/sdk@^1.30.0'
 "@tanstack/react-router" = 'npm:@tanstack/react-router@^1.170.18'

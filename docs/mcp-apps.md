@@ -1,12 +1,16 @@
 # MCP Apps
 
-Use `BelgieExtension` to attach a React widget to a Python MCP tool. Widgets are regular Vite
-entries at `<srcDir>/<name>/widget.tsx`; Belgie serves them from Vite during development and reads
-self-contained built HTML in production.
+Use `BelgieExtension` when a Python MCP tool needs a React widget in the host. You keep the widget
+as a regular Vite entry at `<srcDir>/<name>/widget.tsx`; Belgie serves it from Vite during
+development and reads self-contained built HTML in production.
 
 The workflow has four parts: Python registers the tool and widget path, Vite builds the browser
 entry, code generation creates typed callers from the MCP schema, and the widget reads or refreshes
 tool results through the connected host.
+
+Choose MCP Apps when the widget belongs to a Python MCP server. For an agent-authored widget that
+returns one HTML document as a tool result, use [@belgie/vite](packages/vite.md) and the agent
+`render_widget` tool instead.
 
 ## Install
 
@@ -108,7 +112,7 @@ Add the Belgie plugin to a normal Vite configuration. React and other project pl
 same configuration:
 
 ```ts {title="vite.config.ts"}
-import { belgie } from "@belgie/mcp/vite";
+import { belgie } from "@belgie/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
@@ -125,7 +129,17 @@ starting a production extension with `dev=False` and `build=False`.
 
 ## Generate typed tool callers
 
-Use the package CLI against a streamable HTTP MCP endpoint after the server is running:
+For a local Python MCP project, configure the target and output in `pyproject.toml`, then generate
+from the registered server without starting an HTTP endpoint:
+
+```bash
+uv run belgie generate
+uv run belgie generate --check
+```
+
+The target may be an `MCPServer` or `BelgieExtension`; generation reads its registered schemas
+without loading widget HTML, starting Vite, or executing tool bodies. For a remote streamable HTTP
+MCP endpoint, use the package CLI after the server is running:
 
 ```bash
 npx belgie-mcp generate http://127.0.0.1:3001/mcp --output src/widgets/tools.ts
@@ -170,8 +184,8 @@ Use `useModal()` or `requestModal()` for host modals, and `sendMessage`, `sendLo
 ## Development and production boundaries
 
 The Python extension owns widget HTML delivery. The TypeScript package owns the browser-side MCP
-Apps bridge. `@belgie/render` is a separate API for agent-authored inline widgets and is not a
-replacement for path-based MCP widgets.
+Apps bridge. `@belgie/vite` also powers agent-authored inline widgets through `render_widget`, which
+is not a replacement for path-based MCP widgets.
 
 !!! warning "Do not register a string widget"
     `BelgieExtension.tool()` expects a `Path` to the current `widget.tsx` file. Legacy manifest and
@@ -180,6 +194,7 @@ replacement for path-based MCP widgets.
 ## See also
 
 - [@belgie/mcp](packages/mcp.md)
+- [@belgie/vite](packages/vite.md)
 - [Basic Runtime](examples/basic.md)
 - [MCP example](examples/mcp.md)
 - [CLI](cli.md)

@@ -1,8 +1,8 @@
 # Pydantic AI
 
-Use `BelgieSandbox` to add a restricted `run_typescript` tool to a Pydantic AI agent. The tool executes complete
-JavaScript, TypeScript, or TSX modules in an embedded Deno runtime without running model-authored code in the Python
-application process.
+Use `BelgieSandbox` when a Pydantic AI agent needs a restricted `run_typescript` tool. It executes
+complete JavaScript, TypeScript, or TSX modules in an embedded Deno runtime inside your Python
+application.
 
 ## Install
 
@@ -28,7 +28,7 @@ result = agent.run_sync("Use TypeScript to group ['ant', 'ape', 'bear'] by first
 print(result.output)
 ```
 
-The model writes a complete module and exports either a default function or a named `run` function:
+The model supplies a complete module and exports either a default function or a named `run` function:
 
 ```typescript
 export default function run(): Record<string, string[]> {
@@ -41,8 +41,8 @@ The exported function receives no arguments and must return JSON-serializable da
 
 ## Default isolation
 
-Each agent run receives a separate temporary Belgie environment and Deno runtime. The runtime starts lazily on the
-first `run_typescript` call, so an unused capability does not start a worker.
+Each agent run receives a separate temporary Belgie environment and Deno runtime. The runtime starts
+lazily on the first `run_typescript` call, so an unused capability does not start a worker.
 
 By default:
 
@@ -58,8 +58,8 @@ untrusted code requires a separate kernel, filesystem, or network namespace.
 
 ## Configure packages, network, and rendering
 
-Package imports, network access, and rendering are separate options. Rendering also enables package resolution because
-`@belgie/render` must be installed:
+Package imports, network access, and rendering are separate options. Rendering also enables package
+resolution because `@belgie/vite` must be installed:
 
 ```python
 from belgie.pydantic_ai import BelgieSandbox
@@ -68,35 +68,33 @@ capability = BelgieSandbox(
     allow_package_imports=True,
     allow_network=True,
     enable_rendering=True,
+    plugins=["npm:@tailwindcss/vite@latest"],
 )
 ```
 
-`allow_package_imports=True` permits npm, JSR, and URL module resolution, but does not enable runtime `fetch`.
-`allow_network=True` grants unrestricted runtime network access without granting host files or subprocesses.
+`allow_package_imports=True` permits npm, JSR, and URL module resolution, but does not enable
+runtime `fetch`. `allow_network=True` grants unrestricted runtime network access without granting
+host files or subprocesses.
 
-Rendering runs on a separate privileged renderer side channel. Model scripts remain workspace-restricted; use
-`plugins: []` for untrusted agents because model-selected renderer plugins can write under the workspace and load
-native code from installed packages.
+With `enable_rendering=True`, the capability exposes a `render_widget` tool. Pass a complete TSX
+module that default-exports a React component — do not call `render()`:
 
 ```tsx
-import { render } from "@belgie/render";
-
-function Widget() {
+export default function Widget() {
   return <main>Hello from Belgie</main>;
-}
-
-export default function run() {
-  return render({ widget: <Widget />, plugins: [] });
 }
 ```
 
-The returned HTML is ordinary tool data. Raise `max_output_bytes` when the rendered document is larger than the
-default limit.
+Rendering runs on a separate privileged renderer side channel. Model scripts remain
+workspace-restricted; use `plugins=()` for untrusted agents because configured renderer plugins can
+write under the workspace and load native code from installed packages. The returned HTML is
+ordinary tool output. Raise `max_output_bytes` when the rendered document is larger than the default
+limit.
 
 ## Reuse a session
 
-An owned runtime lasts for one agent run. Multiple calls in that run share the same Deno worker, while separate or
-concurrent runs receive separate workers and workspaces.
+A capability-owned runtime lasts for one agent run. Calls made during that run share the same Deno
+worker. Separate or concurrent runs receive separate workers and workspaces.
 
 For explicit reuse across runs, create and enter a session yourself:
 
@@ -162,6 +160,7 @@ BelgieSandbox(
     allow_package_imports=False,
     allow_network=False,
     enable_rendering=False,
+    plugins=(),
     max_old_generation_size_mb=128,
     timeout=30.0,
     max_output_bytes=50 * 1024,
@@ -190,4 +189,4 @@ to an injected session.
 
 - [AI agent overview](overview.md)
 - [Runtime](../runtime.md)
-- [@belgie/render](../packages/render.md)
+- [@belgie/vite](../packages/vite.md)

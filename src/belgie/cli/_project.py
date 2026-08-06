@@ -12,6 +12,7 @@ from tomlkit.items import InlineTable, String, StringType, Table
 from belgie._pyproject import (
     BelgieToolConfig,
     PyprojectError,
+    TypeScriptConfig,
     discover_pyproject_root,
     parse_belgie_tool_config,
     parse_tool_table,
@@ -42,6 +43,7 @@ class BelgieProject:
     minimum_dependency_age: str | None
     pyproject: dict[str, Any]
     source: Path
+    typescript: TypeScriptConfig
 
     @property
     def has_dependencies(self) -> bool:
@@ -223,4 +225,5 @@ def _load_project_from_document(root: Path, document: dict[str, Any]) -> BelgieP
         minimum_dependency_age=config.minimum_dependency_age,
         pyproject=document,
         source=config.source,
+        typescript=config.typescript,
     )

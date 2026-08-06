@@ -1,8 +1,7 @@
-# Belgie
+# Run JavaScript and TypeScript from Python
 
-Belgie embeds a Deno-powered JavaScript and TypeScript runtime in Python. Use it to execute scripts
-with explicit permissions, manage JavaScript dependencies, build React MCP Apps, or give AI agents a
-JavaScript sandbox tool.
+Belgie embeds a permissioned Deno runtime in Python. Use it to run scripts, manage JavaScript
+dependencies, build React MCP Apps, or give AI agents a JavaScript and TypeScript sandbox tool.
 
 ## Choose a path
 
@@ -12,11 +11,11 @@ JavaScript sandbox tool.
 | Share dependencies or a workspace across runs | [Environment](environment.md) | Resolve npm, JSR, URL, and local file dependencies with a lockfile. |
 | Invoke an installed JavaScript package binary | [Command](command.md) | Run tools such as Vite through the same runtime boundary. |
 | Attach a React widget to an MCP tool | [MCP Apps](mcp-apps.md) | Connect Python tools, Vite widgets, and typed tool callers. |
-| Let an agent write JavaScript or TypeScript | [AI agents](agents/overview.md) | Add `run_typescript` to Pydantic AI or `run_code` to LangChain. |
+| Give an AI agent a sandboxed JavaScript or TypeScript tool | [AI agents](agents/overview.md) | Add `run_typescript` to Pydantic AI or `run_code` to LangChain. |
 
 ## Install
 
-Start with the core runtime:
+Install the base runtime first:
 
 ```bash
 uv add belgie
@@ -51,8 +50,8 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-The [Runtime](runtime.md) and [Script](script.md) guides explain synchronous and asynchronous use,
-file-based scripts, imports, and the data bridge.
+See [Runtime](runtime.md) and [Script](script.md) for synchronous and asynchronous use, file-based
+scripts, imports, and the data bridge.
 
 ## Build an MCP App
 
@@ -88,5 +87,5 @@ choose the [Pydantic AI](agents/pydantic-ai.md) or [LangChain](agents/langchain.
 - Follow [Install](install.md) to choose extras and verify the runtime.
 - Learn how [Runtime](runtime.md), [Script](script.md), and [Environment](environment.md) fit together.
 - Build the [MCP Apps example](examples/mcp.md).
-- Read about [inline React rendering](packages/render.md) for agent-authored widgets.
+- Read about [inline React rendering](packages/vite.md) for agent-authored widgets.
 - Use [Troubleshooting](troubleshooting.md) when setup or runtime errors need diagnosis.

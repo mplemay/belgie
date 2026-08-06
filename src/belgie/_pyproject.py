@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Final
@@ -14,6 +14,9 @@ DEFAULT_MODULE: Final[bool] = False
 SOURCE_TABLE_PATH: Final[str] = "[tool.belgie].source"
 MODULE_TABLE_PATH: Final[str] = "[tool.belgie].module"
 MINIMUM_DEPENDENCY_AGE_TABLE_PATH: Final[str] = "[tool.belgie].minimum-dependency-age"
+TYPESCRIPT_TABLE_PATH: Final[str] = "[tool.belgie.typescript]"
+TYPESCRIPT_TARGET_PATH: Final[str] = f"{TYPESCRIPT_TABLE_PATH}.target"
+TYPESCRIPT_OUTPUT_PATH: Final[str] = f"{TYPESCRIPT_TABLE_PATH}.output"
 ABSOLUTE_SOURCE_PATH_ERROR: Final[str] = f"{SOURCE_TABLE_PATH} must be a relative path"
 PARENT_SOURCE_PATH_ERROR: Final[str] = f"{SOURCE_TABLE_PATH} cannot contain '..'"
 EMPTY_SOURCE_PATH_ERROR: Final[str] = f"{SOURCE_TABLE_PATH} must be a non-empty string"
@@ -22,6 +25,9 @@ INVALID_MODULE_ERROR: Final[str] = f"{MODULE_TABLE_PATH} must be a boolean"
 INVALID_MINIMUM_DEPENDENCY_AGE_ERROR: Final[str] = (
     f"{MINIMUM_DEPENDENCY_AGE_TABLE_PATH} must be a nonnegative integer, a non-empty string, or false"
 )
+INVALID_TYPESCRIPT_TABLE_ERROR: Final[str] = f"{TYPESCRIPT_TABLE_PATH} must be a table"
+INVALID_TYPESCRIPT_TARGET_ERROR: Final[str] = f"{TYPESCRIPT_TARGET_PATH} must be a non-empty string"
+INVALID_TYPESCRIPT_OUTPUT_ERROR: Final[str] = f"{TYPESCRIPT_OUTPUT_PATH} must be a non-empty string"
 
 
 class PyprojectError(Exception):
@@ -29,10 +35,17 @@ class PyprojectError(Exception):
 
 
 @dataclass(slots=True, kw_only=True, frozen=True)
+class TypeScriptConfig:
+    target: str | None = None
+    output: Path | None = None
+
+
+@dataclass(slots=True, kw_only=True, frozen=True)
 class BelgieToolConfig:
     source: Path = DEFAULT_SOURCE
     module: bool = DEFAULT_MODULE
     minimum_dependency_age: str | None = None
+    typescript: TypeScriptConfig = field(default_factory=TypeScriptConfig)
 
 
 def is_absolute_config_path(source: str) -> bool:
@@ -70,26 +83,45 @@ def parse_belgie_tool_config(document: dict[str, Any]) -> BelgieToolConfig:
         msg = "[tool.belgie] must be a table"
         raise PyprojectError(msg)
 
-    source = belgie.get("source")
-    if source is None:
-        source_path = DEFAULT_SOURCE
-    else:
-        if not isinstance(source, str) or not source.strip():
-            raise PyprojectError(EMPTY_SOURCE_PATH_ERROR if isinstance(source, str) else INVALID_SOURCE_PATH_ERROR)
-        source_path = Path(source)
-        if is_absolute_config_path(source):
-            raise PyprojectError(ABSOLUTE_SOURCE_PATH_ERROR)
-        if any(part == ".." for part in source_path.parts):
-            raise PyprojectError(PARENT_SOURCE_PATH_ERROR)
-
     module = belgie.get("module", DEFAULT_MODULE)
     if not isinstance(module, bool):
         raise PyprojectError(INVALID_MODULE_ERROR)
 
     return BelgieToolConfig(
-        source=source_path,
+        source=_parse_source_path(belgie.get("source")),
         module=module,
         minimum_dependency_age=_parse_minimum_dependency_age(belgie.get("minimum-dependency-age")),
+        typescript=_parse_typescript_config(belgie.get("typescript")),
+    )
+
+
+def _parse_source_path(source: object) -> Path:
+    if source is None:
+        return DEFAULT_SOURCE
+    if not isinstance(source, str) or not source.strip():
+        raise PyprojectError(EMPTY_SOURCE_PATH_ERROR if isinstance(source, str) else INVALID_SOURCE_PATH_ERROR)
+    source_path = Path(source)
+    if is_absolute_config_path(source):
+        raise PyprojectError(ABSOLUTE_SOURCE_PATH_ERROR)
+    if any(part == ".." for part in source_path.parts):
+        raise PyprojectError(PARENT_SOURCE_PATH_ERROR)
+    return source_path
+
+
+def _parse_typescript_config(value: object) -> TypeScriptConfig:
+    if value is None:
+        return TypeScriptConfig()
+    if not isinstance(value, dict):
+        raise PyprojectError(INVALID_TYPESCRIPT_TABLE_ERROR)
+    target = value.get("target")
+    if target is not None and (not isinstance(target, str) or not target.strip()):
+        raise PyprojectError(INVALID_TYPESCRIPT_TARGET_ERROR)
+    output = value.get("output")
+    if output is not None and (not isinstance(output, str) or not output.strip()):
+        raise PyprojectError(INVALID_TYPESCRIPT_OUTPUT_ERROR)
+    return TypeScriptConfig(
+        target=target,
+        output=Path(output) if output is not None else None,
     )
 
 

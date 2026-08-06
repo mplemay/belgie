@@ -1,4 +1,6 @@
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, Final, TypeVar
 from urllib.parse import urlparse, urlunparse
@@ -15,6 +17,17 @@ CallableT = TypeVar("CallableT", bound=Callable[..., Any])
 DEFAULT_DEV_HOST: Final[str] = "127.0.0.1"
 DEFAULT_DEV_PORT: Final[int] = 5173
 INVALID_WIDGET_TYPE_ERROR: Final[str] = "widget must be a pathlib.Path pointing to widget.tsx, got {widget_type}"
+TYPE_GENERATION_WIDGET_HTML: Final[str] = "<!doctype html><html><body></body></html>"
+TYPE_GENERATION_ACTIVE: ContextVar[bool] = ContextVar("belgie_mcp_type_generation_active", default=False)
+
+
+@contextmanager
+def generate_tool_types_context() -> Iterator[None]:
+    token = TYPE_GENERATION_ACTIVE.set(True)
+    try:
+        yield
+    finally:
+        TYPE_GENERATION_ACTIVE.reset(token)
 
 
 class BelgieExtension(Apps):
@@ -89,6 +102,8 @@ class BelgieExtension(Apps):
         if not isinstance(widget, Path):
             msg = INVALID_WIDGET_TYPE_ERROR.format(widget_type=type(widget).__name__)
             raise TypeError(msg)
+        if TYPE_GENERATION_ACTIVE.get():
+            return TYPE_GENERATION_WIDGET_HTML
         project_path = self._resolve_project_path()
         resolved_widget = resolve_widget_path(widget, project_path)
         if self._dev:

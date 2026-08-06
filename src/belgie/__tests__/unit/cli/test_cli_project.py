@@ -49,6 +49,8 @@ camelcase = "npm:camelcase@8.0.0"
     assert not project.module
     assert project.minimum_dependency_age is None
     assert project.source == Path()
+    assert project.typescript.target is None
+    assert project.typescript.output is None
     assert project.lockfile_path == tmp_path / "deno.lock"
 
 
@@ -79,6 +81,25 @@ source = "src/app/views"
     project = load_project(tmp_path)
 
     assert project.source == Path("src/app/views")
+
+
+def test_load_project_reads_tool_belgie_typescript_settings(tmp_path: Path) -> None:
+    write_pyproject(
+        tmp_path,
+        """
+[project]
+name = "demo"
+
+[tool.belgie.typescript]
+target = "demo.__main__:mcp"
+output = "src/tools.ts"
+""",
+    )
+
+    project = load_project(tmp_path)
+
+    assert project.typescript.target == "demo.__main__:mcp"
+    assert project.typescript.output == Path("src/tools.ts")
 
 
 def test_load_project_reads_tool_belgie_module_mode(tmp_path: Path) -> None:

@@ -1,12 +1,12 @@
 # MCP Apps example
 
-The `examples/ui/mcp` project connects a Python MCP tool to a React widget. It demonstrates the
-complete path from a tool result to a host-connected widget.
+The `examples/ui/mcp` project shows the complete path from a Python MCP tool to a React widget. It
+includes the server, generated caller, widget entry, and Vite configuration in one runnable project.
 
-## Demonstrates
+## What you will build
 
 - `BelgieExtension` registration with a `Path` to `widget.tsx`.
-- Vite configuration with `@belgie/mcp/vite`.
+- Vite configuration with `@belgie/vite`.
 - Generated typed callers and `useToolResult`.
 - A self-contained production widget build.
 
@@ -20,7 +20,7 @@ uv sync
 uv run main
 ```
 
-The example listens on `http://127.0.0.1:3001`. Its MCP streamable HTTP endpoint is `/mcp`.
+The example listens on `http://127.0.0.1:3001`, with the MCP streamable HTTP endpoint at `/mcp`.
 
 Before starting the server, lock and install the JavaScript dependencies if the checkout does not
 already contain a current `deno.lock`:
@@ -30,7 +30,7 @@ uv run belgie lock
 uv run belgie install
 ```
 
-## Python server
+## Register the Python tool
 
 The server registers a normal Python function with a widget path. The complete entrypoint is
 included from the shipped example:
@@ -42,7 +42,7 @@ included from the shipped example:
 The complete implementation is in
 [`examples/ui/mcp/src/mcp_app/__main__.py`](https://github.com/mplemay/belgie/blob/main/examples/ui/mcp/src/mcp_app/__main__.py).
 
-## Widget and generated caller
+## Connect the widget and generated caller
 
 The widget imports `Widget` and `useToolResult` from `@belgie/mcp`. The generated caller gives the
 hook an input and output schema:
@@ -70,16 +70,18 @@ export default function GetTime() {
 }
 ```
 
-Run `npx belgie-mcp generate` against the running endpoint when the tool schema changes. See
-[@belgie/mcp](../packages/mcp.md) for authentication and `--check` options.
+Run `uv run belgie generate` when the local Python tool schema changes. It imports the configured
+server in a schema-only context, so no endpoint or Vite process is required. Use `npx belgie-mcp
+generate` for remote endpoints; see [@belgie/mcp](../packages/mcp.md) for authentication and
+`--check` options.
 
-## Production build
+## Build for production
 
 Set `dev=False` in `BelgieExtension` after building the widget assets, or use the project's
 production configuration. The extension then reads `dist/widgets/get-time/index.html` instead of
 starting a Vite development server.
 
-## Variants
+## Try a variant
 
 - [`examples/ui/shadcn`](https://github.com/mplemay/belgie/tree/main/examples/ui/shadcn) adds
   Tailwind CSS and shadcn/ui components.

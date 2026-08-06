@@ -12,6 +12,7 @@ from belgie.agent._run_code import (
     BELGIE_TOOL_NAMES,
     DEFAULT_BELGIE_CAPABILITY_DESCRIPTION,
     DEFAULT_BELGIE_CAPABILITY_ID,
+    RENDER_WIDGET_DESCRIPTION,
     apply_defer_loading_defaults,
     resolved_description,
 )
@@ -21,7 +22,7 @@ from belgie.langchain._state import (
     BelgieAgentState,
     session_from_state,
 )
-from belgie.langchain._tools import build_load_belgie_tool, build_run_code_tool
+from belgie.langchain._tools import build_load_belgie_tool, build_render_widget_tool, build_run_code_tool
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -46,17 +47,26 @@ class BelgieMiddleware(BelgieOptions, AgentMiddleware[BelgieAgentState]):
     def _create_tools(self) -> list[BaseTool]:
         capability_id = self.capability_id or DEFAULT_BELGIE_CAPABILITY_ID
         description = resolved_description(self)
-        run_code_tool = build_run_code_tool(
-            description=description,
-            defer_loading=self.defer_loading,
-        )
+        tools: list[BaseTool] = [
+            build_run_code_tool(
+                description=description,
+                defer_loading=self.defer_loading,
+            ),
+        ]
+        if self.enable_rendering:
+            tools.append(
+                build_render_widget_tool(
+                    description=RENDER_WIDGET_DESCRIPTION,
+                    defer_loading=self.defer_loading,
+                ),
+            )
         if not self.defer_loading:
-            return [run_code_tool]
+            return tools
         load_tool = build_load_belgie_tool(
             capability_id=capability_id,
             description=DEFAULT_BELGIE_CAPABILITY_DESCRIPTION,
         )
-        return [load_tool, run_code_tool]
+        return [load_tool, *tools]
 
     def _new_session(self) -> BelgieRuntimeSession:
         return BelgieRuntimeSession(**self.options_kwargs())

@@ -25,9 +25,6 @@
       ],
       "@belgie/mcp/internal": [
         "./src/internal.ts"
-      ],
-      "@belgie/mcp/vite": [
-        "./src/vite.ts"
       ]
     },
     "resolveJsonModule": true,

@@ -12,16 +12,20 @@ from pydantic_ai.toolsets import FunctionToolset
 from belgie.pydantic_ai._session import (
     DEFAULT_MAX_OLD_GENERATION_SIZE_MB,
     DEFAULT_TIMEOUT,
+    BelgieSandboxError,
     BelgieSandboxExecutionError,
     BelgieSandboxSession,
     BelgieSandboxTimeoutError,
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from pydantic_ai import RunContext
     from pydantic_ai.toolsets import AbstractToolset
 
 RUN_TYPESCRIPT_TOOL_NAME: Final[str] = "run_typescript"
+RENDER_WIDGET_TOOL_NAME: Final[str] = "render_widget"
 DEFAULT_MAX_OUTPUT_BYTES: Final[int] = 50 * 1024
 
 TOOL_DESCRIPTION: Final[str] = """\
@@ -35,6 +39,12 @@ explicitly enables their Belgie Sandbox options. Caller-supplied runtimes define
 External agent tools are not callable from inside this sandbox.
 """
 
+RENDER_WIDGET_DESCRIPTION: Final[str] = """\
+Render a default-export React TSX widget to a self-contained HTML document via `@belgie/vite`.
+Pass complete module source that `export default`s a React component. Do not call `render()` from \
+script code; use this tool instead of returning HTML from `run_typescript`.
+"""
+
 
 class BelgieSandboxToolset(FunctionToolset[AgentDepsT]):
     def __init__(  # noqa: PLR0913
@@ -43,6 +53,7 @@ class BelgieSandboxToolset(FunctionToolset[AgentDepsT]):
         allow_package_imports: bool,
         allow_network: bool,
         enable_rendering: bool,
+        plugins: Sequence[str] = (),
         max_old_generation_size_mb: int | None,
         timeout: float,
         max_output_bytes: int,
@@ -55,6 +66,7 @@ class BelgieSandboxToolset(FunctionToolset[AgentDepsT]):
         self._allow_package_imports = allow_package_imports
         self._allow_network = allow_network
         self._enable_rendering = enable_rendering
+        self._plugins = tuple(plugins)
         self._max_old_generation_size_mb = max_old_generation_size_mb
         self._timeout = timeout
         self._max_output_bytes = max_output_bytes
@@ -70,6 +82,15 @@ class BelgieSandboxToolset(FunctionToolset[AgentDepsT]):
             metadata={"code_arg_name": "code", "code_arg_language": "typescript"},
             sequential=True,
         )
+        if enable_rendering:
+            self.add_function(
+                self.render_widget,
+                takes_ctx=False,
+                name=RENDER_WIDGET_TOOL_NAME,
+                description=RENDER_WIDGET_DESCRIPTION,
+                metadata={"code_arg_name": "source", "code_arg_language": "tsx"},
+                sequential=True,
+            )
 
     async def for_run(self, ctx: RunContext[AgentDepsT]) -> AbstractToolset[AgentDepsT]:
         del ctx
@@ -77,6 +98,7 @@ class BelgieSandboxToolset(FunctionToolset[AgentDepsT]):
             allow_package_imports=self._allow_package_imports,
             allow_network=self._allow_network,
             enable_rendering=self._enable_rendering,
+            plugins=self._plugins,
             max_old_generation_size_mb=self._max_old_generation_size_mb,
             timeout=self._timeout,
             max_output_bytes=self._max_output_bytes,
@@ -118,6 +140,7 @@ class BelgieSandboxToolset(FunctionToolset[AgentDepsT]):
             allow_package_imports=self._allow_package_imports,
             allow_network=self._allow_network,
             enable_rendering=self._enable_rendering,
+            plugins=self._plugins,
             max_old_generation_size_mb=self._max_old_generation_size_mb,
         )
         self._session = session
@@ -157,11 +180,40 @@ class BelgieSandboxToolset(FunctionToolset[AgentDepsT]):
             },
         )
 
+    async def render_widget(
+        self,
+        source: Annotated[
+            str,
+            Field(description="Complete default-export React TSX module source to render to HTML."),
+        ],
+    ) -> ToolReturn:
+        session = await self._require_session()
+        try:
+            html = await session.render_widget(source, timeout=self._timeout)
+        except (BelgieSandboxExecutionError, BelgieSandboxTimeoutError, BelgieSandboxError) as error:
+            raise ModelRetry(str(error)) from error
+        output_bytes = len(html.encode())
+        if output_bytes > self._max_output_bytes:
+            message = (
+                f"Belgie widget HTML was {output_bytes} UTF-8 bytes, exceeding the "
+                f"{self._max_output_bytes}-byte limit. Return a smaller widget."
+            )
+            raise ModelRetry(message)
+        return ToolReturn(
+            return_value=html,
+            metadata={
+                "belgie_sandbox": True,
+                "code_language": "tsx",
+                "output_bytes": output_bytes,
+            },
+        )
+
 
 __all__: tuple[str, ...] = (
     "DEFAULT_MAX_OLD_GENERATION_SIZE_MB",
     "DEFAULT_MAX_OUTPUT_BYTES",
     "DEFAULT_TIMEOUT",
+    "RENDER_WIDGET_TOOL_NAME",
     "RUN_TYPESCRIPT_TOOL_NAME",
     "BelgieSandboxToolset",
 )

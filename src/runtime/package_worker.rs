@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
+#[cfg(windows)]
+use std::sync::Mutex;
 
 use deno_cache_dir::file_fetcher::MemoryFiles;
 use deno_core::{FastString, ModuleSpecifier};
@@ -248,11 +250,7 @@ fn create_unconfigured_runtime(
     let create_params =
         custom_params.or_else(|| create_isolate_create_params(&EmbedSys::default()));
 
-    Ok(Some(deno_runtime::UnconfiguredRuntime::new::<
-        DenoInNpmPackageChecker,
-        NpmResolver<EmbedSys>,
-        EmbedSys,
-    >(UnconfiguredRuntimeOptions {
+    let options = UnconfiguredRuntimeOptions {
         startup_snapshot,
         residual_lazy_js_sources: deno_snapshots::RESIDUAL_LAZY_JS,
         residual_lazy_esm_sources: deno_snapshots::RESIDUAL_LAZY_ESM,
@@ -260,7 +258,30 @@ fn create_unconfigured_runtime(
         shared_array_buffer_store: Some(roots.shared_array_buffer_store.clone()),
         compiled_wasm_module_store: Some(roots.compiled_wasm_module_store.clone()),
         additional_extensions: Vec::new(),
-    })))
+    };
+
+    // Deno's Windows snapshot-init mutex for denoland/deno#15590 is dead code
+    // (FIRST_SNAPSHOT_INIT starts false and is only set inside the locked branch),
+    // and denoland/deno#36280 was declined. Serialize CLI-snapshot Isolate::new
+    // here so concurrent workers do not race snapshot deserialization.
+    #[cfg(windows)]
+    {
+        static SNAPSHOT_INIT: Mutex<()> = Mutex::new(());
+        let _guard = SNAPSHOT_INIT
+            .lock()
+            .expect("windows snapshot init lock should not be poisoned");
+        Ok(Some(deno_runtime::UnconfiguredRuntime::new::<
+            DenoInNpmPackageChecker,
+            NpmResolver<EmbedSys>,
+            EmbedSys,
+        >(options)))
+    }
+    #[cfg(not(windows))]
+    Ok(Some(deno_runtime::UnconfiguredRuntime::new::<
+        DenoInNpmPackageChecker,
+        NpmResolver<EmbedSys>,
+        EmbedSys,
+    >(options)))
 }
 
 #[derive(Debug)]

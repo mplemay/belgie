@@ -14,15 +14,28 @@ class RunCodeInput(BaseModel):
     code: str = Field(description="The JavaScript, TypeScript, or TSX belgie.Script module source to execute.")
 
 
+class RenderWidgetInput(BaseModel):
+    source: str = Field(description="Complete default-export React TSX module source to render to HTML.")
+
+
 RUN_CODE_TOOL_NAME: Final[str] = "run_code"
+RENDER_WIDGET_TOOL_NAME: Final[str] = "render_widget"
 LOAD_BELGIE_TOOL_NAME: Final[str] = "load_belgie"
-BELGIE_TOOL_NAMES: Final[frozenset[str]] = frozenset({RUN_CODE_TOOL_NAME, LOAD_BELGIE_TOOL_NAME})
+BELGIE_TOOL_NAMES: Final[frozenset[str]] = frozenset(
+    {RUN_CODE_TOOL_NAME, RENDER_WIDGET_TOOL_NAME, LOAD_BELGIE_TOOL_NAME},
+)
 RUN_CODE_ADAPTER: Final[TypeAdapter[RunCodeInput]] = TypeAdapter(RunCodeInput)
 RUN_CODE_JSON_SCHEMA: Final[dict[str, Any]] = RUN_CODE_ADAPTER.json_schema()
 RUN_CODE_ARGS_VALIDATOR: Final[Any] = RUN_CODE_ADAPTER.validator
 RUN_CODE_METADATA: Final[dict[str, str]] = {
     "code_arg_name": "code",
     "code_arg_language": "typescript",
+}
+RENDER_WIDGET_ADAPTER: Final[TypeAdapter[RenderWidgetInput]] = TypeAdapter(RenderWidgetInput)
+RENDER_WIDGET_JSON_SCHEMA: Final[dict[str, Any]] = RENDER_WIDGET_ADAPTER.json_schema()
+RENDER_WIDGET_METADATA: Final[dict[str, str]] = {
+    "code_arg_name": "source",
+    "code_arg_language": "tsx",
 }
 RUN_CODE_DESCRIPTION: Final[str] = """\
 Write and run a belgie.Script module in a sandbox.
@@ -40,8 +53,8 @@ Important restrictions:
 - External agent tools are not available inside the sandbox.
 - Return values must be JSON-serializable.
 - Use `return` from the exported function for the value you want to send back.
-- To return a self-contained inline React widget, import `render` from `npm:@belgie/render` and \
-return its promise. The full HTML document is returned as the ordinary tool result.
+- To produce a self-contained inline React widget, use the `render_widget` tool with a \
+default-export TSX module instead of returning HTML from this tool.
 
 Examples:
 
@@ -52,19 +65,19 @@ export default async function run(): Promise<number[]> {
   return ids.slice(0, 20);
 }
 ```
+"""
+
+RENDER_WIDGET_DESCRIPTION: Final[str] = """\
+Render a default-export React TSX widget to a self-contained HTML document via `@belgie/vite`.
+
+Pass complete module source that `export default`s a React component. Host-configured Vite plugins \
+are applied automatically; do not import or call a `render()` helper from script code.
+
+Example:
 
 ```tsx
-import { render } from "npm:@belgie/render";
-
-function Widget() {
+export default function Widget() {
   return <main>Hello from Belgie</main>;
-}
-
-export default function run() {
-  return render({
-    widget: <Widget />,
-    plugins: [],
-  });
 }
 ```
 """
@@ -75,7 +88,7 @@ SCRIPT_FAILURE_PREFIX: Final[str] = "Belgie script execution failed:\n"
 DEFAULT_BELGIE_CAPABILITY_ID: Final[str] = "belgie"
 DEFAULT_BELGIE_CAPABILITY_DESCRIPTION: Final[str] = (
     "Execute JavaScript, TypeScript, or TSX belgie.Script modules and render inline React widgets "
-    "in a Deno sandbox via run_code."
+    "in a Deno sandbox via run_code and render_widget."
 )
 
 

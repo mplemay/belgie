@@ -6,14 +6,14 @@ import { pathToFileURL } from "node:url";
 
 import { build } from "vite";
 
-import { belgie } from "../src/vite.ts";
+import { belgie } from "../src/plugin.ts";
 
 const INTERNAL_PACKAGE_TYPE_ENV = "BELGIE_INTERNAL_PACKAGE_TYPE";
 const INTERNAL_WIDGET_PATH_ENV = "BELGIE_INTERNAL_WIDGET_PATH";
 const temporaryDirectories: string[] = [];
 
 function temporaryProject(): string {
-  const root = mkdtempSync(join(tmpdir(), "belgie-mcp-vite-"));
+  const root = mkdtempSync(join(tmpdir(), "belgie-vite-"));
   temporaryDirectories.push(root);
   return root;
 }
@@ -700,13 +700,12 @@ describe("isolated production builds", () => {
     writeFileSync(join(root, "src", "widgets", "weather", "style.css"), "div { color: red }");
     const configFile = join(root, "vite.config.ts");
     const packageRoot = resolve(import.meta.dirname, "..");
-    const pluginUrl = pathToFileURL(join(packageRoot, "dist", "vite.js")).href;
-    const packageEntry = join(packageRoot, "dist", "index.js");
+    const pluginUrl = pathToFileURL(join(packageRoot, "dist", "index.js")).href;
     const reactRoot = join(packageRoot, "node_modules", "react");
     const reactDomRoot = join(packageRoot, "node_modules", "react-dom");
     writeFileSync(
       configFile,
-      `import { belgie } from ${JSON.stringify(pluginUrl)}; export default { resolve: { alias: { "@belgie/mcp": ${JSON.stringify(packageEntry)}, "react/jsx-dev-runtime": ${JSON.stringify(join(reactRoot, "jsx-dev-runtime.js"))}, "react/jsx-runtime": ${JSON.stringify(join(reactRoot, "jsx-runtime.js"))}, "react-dom/client": ${JSON.stringify(join(reactDomRoot, "client.js"))}, "react": ${JSON.stringify(join(reactRoot, "index.js"))} } }, plugins: [belgie()] };\n`,
+      `import { belgie } from ${JSON.stringify(pluginUrl)}; export default { resolve: { alias: { "react/jsx-dev-runtime": ${JSON.stringify(join(reactRoot, "jsx-dev-runtime.js"))}, "react/jsx-runtime": ${JSON.stringify(join(reactRoot, "jsx-runtime.js"))}, "react-dom/client": ${JSON.stringify(join(reactDomRoot, "client.js"))}, "react": ${JSON.stringify(join(reactRoot, "index.js"))} } }, plugins: [belgie()] };\n`,
     );
     const plugin = belgie();
     configHook(plugin)({ root }, { command: "build", mode: "production" });
@@ -795,12 +794,11 @@ describe("shared production builds", () => {
       "clock",
       'import { shared } from "../../shared"; export default function Clock() { return shared(); }',
     );
-    const pluginEntry = pathToFileURL(join(packageRoot, "dist", "vite.js")).href;
-    const mcpEntry = join(packageRoot, "dist", "index.js");
+    const pluginEntry = pathToFileURL(join(packageRoot, "dist", "index.js")).href;
     const configFile = join(root, "vite.config.ts");
     writeFileSync(
       configFile,
-      `import { belgie } from ${JSON.stringify(pluginEntry)}; export default { resolve: { alias: { "@belgie/mcp": ${JSON.stringify(mcpEntry)} } }, plugins: [belgie({ bundle: "shared" })] };\n`,
+      `import { belgie } from ${JSON.stringify(pluginEntry)}; export default { plugins: [belgie({ bundle: "shared" })] };\n`,
     );
 
     await build({ configFile, logLevel: "silent", root });

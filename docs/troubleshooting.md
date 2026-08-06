@@ -2,7 +2,8 @@
 
 Use the error or symptom as the starting point. Most setup failures come from a missing optional
 extra, a project discovered from the wrong directory, an incomplete JavaScript lockfile, or a
-development/production widget mismatch.
+development/production widget mismatch. Apply the smallest fix, then return to the linked setup
+page for the complete workflow.
 
 ## `belgie CLI dependencies are required`
 
@@ -121,11 +122,11 @@ The default Pydantic AI runtime denies network access. Set `allow_network=True` 
 unrestricted runtime network access is intended. LangChain applications should continue using their explicit
 `RuntimePermissions.allow_net` configuration.
 
-## `@belgie/render` rejects the source
+## `render_widget` rejects the source
 
-Keep `widget` and `plugins` in a statically analyzable `render({...})` options object. Avoid
-computed keys, opaque object spreads, post-declaration mutation, and relative browser-graph imports.
-Use package imports such as `npm:react` instead.
+Pass a complete TSX module that default-exports a React component. Do not call `render()` from the
+widget source. Host-configured Vite plugins are applied by Belgie; keep the module free of relative
+host-file imports that the temporary widget workspace cannot resolve.
 
 ## Widget displays in development but not production
 

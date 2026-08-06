@@ -16,7 +16,6 @@ export default defineConfig({
     codegen: "src/codegen.ts",
     index: "src/index.tsx",
     internal: "src/internal.ts",
-    vite: "src/vite.ts",
   },
   exports: {
     bin: {

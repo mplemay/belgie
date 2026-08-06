@@ -79,12 +79,12 @@ production builds, including React, Tailwind, aliases, defines, CSS transforms, 
 
 ```ts
 import tailwindcss from "@tailwindcss/vite"
-import { belgie } from "@belgie/mcp/vite"
+import { belgie } from "@belgie/vite"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  plugins: [belgie(), react(), tailwindcss()],
+  plugins: [belgie({ srcDir: "src/widgets" }), react(), tailwindcss()],
 })
 ```
 

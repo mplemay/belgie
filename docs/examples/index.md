@@ -1,7 +1,7 @@
 # Examples
 
-Belgie ships small runnable projects under `examples/`. Each project has its own `pyproject.toml`
-and can be run independently from the repository checkout.
+Belgie ships small runnable projects under `examples/` so you can try each workflow in isolation.
+Each project has its own `pyproject.toml` and can run independently from the repository checkout.
 
 ## Choose a path
 
@@ -13,15 +13,15 @@ and can be run independently from the repository checkout.
 
 ## Run an example
 
-From the example directory, sync its Python dependencies and run its module:
+From an example directory, sync its Python dependencies and run its module:
 
 ```bash
 cd examples/basic/simple
 uv run main
 ```
 
-MCP examples expose local HTTP servers. Start the server from the example directory and use the
-endpoint documented by that project's README.
+MCP examples expose local HTTP servers. Start a server from its example directory and use the
+endpoint documented in that project's README.
 
 ## Examples in the repository
 

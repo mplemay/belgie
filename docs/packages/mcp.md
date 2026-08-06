@@ -1,7 +1,8 @@
 # `@belgie/mcp`
 
-`@belgie/mcp` provides the browser-side pieces of a Belgie MCP App: a connected React widget,
-typed MCP tool callers, host-context hooks, host actions, modal support, and a Vite plugin.
+Use `@belgie/mcp` to build the browser side of a Belgie MCP App. It provides connected React
+widgets, typed MCP tool callers, host-context hooks, host actions, and modal support. Use
+[`@belgie/vite`](vite.md) for the Vite plugin that discovers and builds path-based widgets.
 
 Use this page for TypeScript and React APIs. Use [MCP Apps](../mcp-apps.md) for Python tool
 registration, Belgie project dependencies, and the server development and production workflow.
@@ -27,7 +28,7 @@ same JavaScript dependencies in `[tool.belgie.dependencies]` and install them wi
 | `@belgie/mcp` | `Widget`, `mountWidget`, tool-result hooks, host-context hooks, host actions, modals, and errors. |
 | `@belgie/mcp/codegen` | Generate typed caller source programmatically with `generateToolTypes()`. |
 | `@belgie/mcp/internal` | Runtime factories used by generated callers. Import this only when building compatible generated code. |
-| `@belgie/mcp/vite` | The `belgie()` Vite plugin. |
+| `@belgie/vite` | The `belgie()` Vite plugin. |
 | `@belgie/mcp/package.json` | Package metadata. |
 
 The public application surface is `@belgie/mcp`. Generated files import their runtime helpers from
@@ -51,23 +52,9 @@ export default function Weather() {
 }
 ```
 
-For a React entry that is mounted by another application, export the component instead and let the
-application render it:
-
-```tsx
-import { Widget } from "@belgie/mcp";
-
-export default function Weather() {
-  return (
-    <Widget metadata={{ name: "Weather", version: "1.0.0" }}>
-      <main>Ready</main>
-    </Widget>
-  );
-}
-```
-
-Use `mountWidget` directly only when you own the HTML entry and are not using the discovered
-`<srcDir>/<name>/widget.tsx` convention.
+If another application owns the HTML entry, export the component and let that application render
+it instead. Use `mountWidget` directly only when you own the HTML entry and are not using the
+discovered `<srcDir>/<name>/widget.tsx` convention.
 
 `Widget` connects to the MCP Apps host before rendering its children. Children that use host-bound
 hooks or helpers must be descendants of `Widget`. Use `fallback` for the connecting state and
@@ -86,7 +73,7 @@ hooks or helpers must be descendants of `Widget`. Use `fallback` for the connect
 Configure the plugin in a normal Vite configuration:
 
 ```ts {title="vite.config.ts"}
-import { belgie } from "@belgie/mcp/vite";
+import { belgie } from "@belgie/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
@@ -122,8 +109,15 @@ widget must be a completely self-contained HTML document.
 
 ## Generate typed tool callers
 
-Generate callers from the MCP server's `tools/list` response instead of hand-writing input and
-output schemas:
+For a local Python MCP project, configure the target and output in `pyproject.toml`, then generate
+from the registered server without starting an HTTP endpoint:
+
+```bash
+uv run belgie generate
+```
+
+The Belgie CLI imports a local Python `MCPServer` or `BelgieExtension` in a schema-only context.
+For a remote streamable HTTP MCP endpoint, use the package CLI:
 
 ```bash
 npx belgie-mcp generate \
@@ -337,5 +331,5 @@ Vitest suite with V8 coverage, and checks the TypeScript API fixtures.
 
 - [MCP Apps](../mcp-apps.md)
 - [MCP Apps example](../examples/mcp.md)
-- [@belgie/render](render.md)
+- [@belgie/vite](vite.md)
 - [CLI](../cli.md)

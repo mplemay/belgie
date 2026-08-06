@@ -1,9 +1,12 @@
-import { escapeInlineScript, escapeInlineStyle, renderBundle, renderHtmlDocument } from "../src/html.ts";
+import { escapeInlineScript, escapeInlineStyle, renderBundle, renderWidgetHtmlDocument } from "../src/html.ts";
 import type { BuildArtifact } from "../src/html.ts";
 
 describe("HTML output", () => {
   it("escapes inline closing tags and renders one complete document", () => {
-    const html = renderHtmlDocument('console.log("</ScRiPt>")', ["main::after { content: '</STYLE>' }"]);
+    const html = renderWidgetHtmlDocument({
+      inlineScript: 'console.log("</ScRiPt>")',
+      inlineStyles: ["main::after { content: '</STYLE>' }"],
+    });
 
     expect(escapeInlineScript("</script>")).toBe(String.raw`<\/script>`);
     expect(escapeInlineStyle("</style>")).toBe(String.raw`<\/style>`);
