@@ -32,7 +32,7 @@ agent = Agent(
             enable_rendering=True,
             timeout=SANDBOX_TIMEOUT_SECONDS,
             max_output_bytes=MAX_OUTPUT_BYTES,
-        )
+        ),
     ],
 )
 
