@@ -64,6 +64,47 @@ describe("build widget file", () => {
     }
   });
 
+  it("does not spread host process.env into the build environment", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "belgie-vite-widget-"));
+    const widgetPath = join(directory, "widget.tsx");
+    writeFileSync(widgetPath, "export default function Widget() { return <main>Env</main>; }\n");
+
+    const probeKey = "BELGIE_VITE_ENV_PROBE";
+    const previousProbe = process.env[probeKey];
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env[probeKey] = "should-not-leak";
+    process.env.NODE_ENV = "test";
+    let sawProbe: string | undefined = "unset";
+    let sawNodeEnv: string | undefined;
+    try {
+      const html = await buildWidgetFile(widgetPath, [
+        {
+          name: "env-probe",
+          buildStart() {
+            sawProbe = process.env[probeKey];
+            sawNodeEnv = process.env.NODE_ENV;
+          },
+        },
+      ]);
+      expect(html).toContain("Env");
+      expect(sawProbe).toBeUndefined();
+      expect(sawNodeEnv).toBe("production");
+      expect(process.env[probeKey]).toBe("should-not-leak");
+      expect(process.env.NODE_ENV).toBe("test");
+    } finally {
+      if (previousProbe === undefined) {
+        delete process.env[probeKey];
+      } else {
+        process.env[probeKey] = previousProbe;
+      }
+      if (previousNodeEnv === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = previousNodeEnv;
+      }
+    }
+  });
+
   it("rejects widgets without a default export", async () => {
     const directory = mkdtempSync(join(tmpdir(), "belgie-vite-widget-"));
     const widgetPath = join(directory, "widget.tsx");

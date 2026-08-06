@@ -55,7 +55,9 @@ The default Pydantic AI sandbox intentionally denies:
 - host files, environment variables, subprocesses, writes, FFI, and system information;
 - non-JSON return values.
 
-Rendering uses a separate renderer runtime with the workspace permissions required by Vite. Use an
+Rendering uses a separate renderer Environment and runtime with workspace read/write, FFI under
+`node_modules`, localhost network access, and limited `allow_sys` grants. Host environment variables
+are denied on that side channel. Rendering does not enable package imports for model scripts. Use an
 empty `plugins` list for untrusted agent-authored widgets because renderer plugin factories and hooks
 run in that privileged side channel.
 
