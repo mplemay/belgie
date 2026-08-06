@@ -1,0 +1,44 @@
+[project]
+name = "pydantic-ai-ui"
+version = "0.1.0"
+description = "FastAPI and Pydantic AI generative UI example for Belgie"
+readme = "readme.md"
+authors = [
+    { name = "Matt LeMay", email = "mplemay@users.noreply.github.com" }
+]
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "belgie[cli,pydantic-ai]",
+    "fastapi[standard]>=0.139,<1",
+]
+
+[project.scripts]
+main = "pydantic_ai_ui.__main__:main"
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.fastapi]
+entrypoint = "pydantic_ai_ui.__main__:app"
+
+[tool.uv]
+exclude-newer = "7 days"
+exclude-newer-package = { belgie = false, fastapi = false, pydantic-ai-slim = false, pydantic-graph = false }
+
+[tool.uv.sources]
+belgie = { path = "../../../", editable = true }
+
+[tool.belgie]
+module = true
+
+[tool.belgie.dependencies]
+"@types/node" = "npm:@types/node@^26.1.2"
+"@types/react" = "npm:@types/react@^19.2.18"
+"@types/react-dom" = "npm:@types/react-dom@^19.2.4"
+"@vitejs/plugin-react" = "npm:@vitejs/plugin-react@^6.0.5"
+react = "npm:react@^19.2.8"
+"react-dom" = "npm:react-dom@^19.2.8"
+"react-dom/client" = "npm:react-dom@^19.2.8"
+typescript = "npm:typescript@^7.0.2"
+vite = "npm:vite@8.2.0"

@@ -39,6 +39,7 @@ endpoint documented in that project's README.
 - `examples/ui/mcp`: a minimal MCP Apps widget.
 - `examples/ui/shadcn`: an MCP Apps widget using Tailwind CSS and shadcn/ui components.
 - `examples/ui/tanstack`: a TanStack Start frontend and MCP endpoint served through FastAPI.
+- `examples/ui/pydantic-ai`: a FastAPI SPA that renders agent-authored UI from a prompt.
 
 ### AI
 
