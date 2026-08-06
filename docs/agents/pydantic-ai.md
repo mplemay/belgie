@@ -58,8 +58,8 @@ untrusted code requires a separate kernel, filesystem, or network namespace.
 
 ## Configure packages, network, and rendering
 
-Package imports, network access, and rendering are separate options. Rendering also enables package
-resolution because `@belgie/vite` must be installed:
+Package imports, network access, and rendering are separate options. Rendering installs
+`@belgie/vite` into its own Environment and does not enable package imports for model scripts:
 
 ```python
 from belgie.pydantic_ai import BelgieSandbox
@@ -85,11 +85,12 @@ export default function Widget() {
 }
 ```
 
-Rendering runs on a separate privileged renderer side channel. Model scripts remain
-workspace-restricted; use `plugins=()` for untrusted agents because configured renderer plugins can
-write under the workspace and load native code from installed packages. The returned HTML is
-ordinary tool output. Raise `max_output_bytes` when the rendered document is larger than the default
-limit.
+Rendering runs on a separate privileged renderer side channel (workspace read/write, FFI under
+`node_modules`, localhost network, limited `allow_sys`; host env denied). Model scripts remain on a
+separate Environment and stay workspace-restricted; use `plugins=()` for untrusted agents because
+configured renderer plugins can write under the render workspace and load native code from installed
+packages. The returned HTML is ordinary tool output. Raise `max_output_bytes` when the rendered
+document is larger than the default limit.
 
 ## Reuse a session
 

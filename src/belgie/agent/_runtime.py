@@ -8,7 +8,16 @@ from tempfile import TemporaryDirectory
 from types import TracebackType
 from typing import TYPE_CHECKING, Final, Self, cast
 
-from belgie import Command, Environment, JsonOutput, Runtime, RuntimeOptions, RuntimePermissions, Script
+from belgie import (
+    Command,
+    Environment,
+    EnvironmentOptions,
+    JsonOutput,
+    Runtime,
+    RuntimeOptions,
+    RuntimePermissions,
+    Script,
+)
 from belgie.agent._options import BelgieOptions
 from belgie.agent._run_code import SCRIPT_TIMEOUT_MESSAGE
 
@@ -51,7 +60,6 @@ def _script_runtime_options(root: Path) -> RuntimeOptions:
 def _render_runtime_options(root: Path) -> RuntimeOptions:
     return RuntimeOptions(
         permissions=RuntimePermissions(
-            allow_env=[],
             allow_ffi=[str(root / "node_modules")],
             allow_net=["localhost"],
             allow_read=[str(root)],
@@ -116,6 +124,7 @@ class BelgieRuntimeSession(BelgieOptions):
     _active_runtime: AsyncRuntime | None = field(default=None, init=False, repr=False)
     _render_runtime: AsyncRuntime | None = field(default=None, init=False, repr=False)
     _workspace: Path | None = field(default=None, init=False, repr=False)
+    _render_workspace: Path | None = field(default=None, init=False, repr=False)
 
     async def __aenter__(self) -> Self:
         if self._exit_stack is not None:
@@ -136,6 +145,7 @@ class BelgieRuntimeSession(BelgieOptions):
         self._active_runtime = None
         self._render_runtime = None
         self._workspace = None
+        self._render_workspace = None
         if stack is None:
             return None
         return await stack.__aexit__(*cast("AsyncExitArgs", args))
@@ -159,12 +169,12 @@ class BelgieRuntimeSession(BelgieOptions):
         if self._active_runtime is None:
             raise RuntimeError(SESSION_NOT_ENTERED_MESSAGE)
         render_runtime = self._render_runtime
-        workspace = self._workspace
-        if render_runtime is None or workspace is None or not self.enable_rendering:
+        render_workspace = self._render_workspace
+        if render_runtime is None or render_workspace is None or not self.enable_rendering:
             raise RuntimeError(RENDERING_UNAVAILABLE_MESSAGE)
         with TemporaryDirectory(
             prefix="render-",
-            dir=workspace,
+            dir=render_workspace,
             ignore_cleanup_errors=True,
         ) as render_home:
             render_dir = Path(render_home)
@@ -199,12 +209,13 @@ class BelgieRuntimeSession(BelgieOptions):
 
         if self.environment is None:
             root = _temporary_workspace(stack)
-            dependencies = _render_dependencies(self.plugins) if self.enable_rendering else None
             active_environment = await stack.enter_async_context(
-                Environment(dependencies, path=root),
+                Environment(
+                    None,
+                    path=root,
+                    options=EnvironmentOptions(allow_remote=False, no_npm=True),
+                ),
             )
-            if self.enable_rendering:
-                await active_environment.install()
         elif isinstance(self.environment, Environment):
             active_environment = await stack.enter_async_context(self.environment)
         else:
@@ -218,7 +229,18 @@ class BelgieRuntimeSession(BelgieOptions):
         )
         if not self.enable_rendering:
             return script_runtime, None
+
+        render_root = _temporary_workspace(stack)
+        self._render_workspace = render_root
+        render_environment = await stack.enter_async_context(
+            Environment(
+                _render_dependencies(self.plugins),
+                path=render_root,
+                options=EnvironmentOptions(allow_remote=True, no_npm=False),
+            ),
+        )
+        await render_environment.install()
         render_runtime = await stack.enter_async_context(
-            Runtime(env=active_environment, options=_render_runtime_options(workspace)),
+            Runtime(env=render_environment, options=_render_runtime_options(render_root)),
         )
         return script_runtime, render_runtime

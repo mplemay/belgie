@@ -310,10 +310,13 @@ class BelgieSandboxSession:
         self._runtime_context: _RuntimeContext | None = None
         self._render_runtime_context: _RuntimeContext | None = None
         self._environment_context: _EnvironmentContext | None = None
+        self._render_environment_context: _EnvironmentContext | None = None
         self._temporary_directory: TemporaryDirectory[str] | None = None
+        self._render_temporary_directory: TemporaryDirectory[str] | None = None
         self._active_runtime: _AsyncRuntime | None = None
         self._render_runtime: _AsyncRuntime | None = None
         self._workspace: Path | None = None
+        self._render_workspace: Path | None = None
 
     @property
     def is_open(self) -> bool:
@@ -330,7 +333,9 @@ class BelgieSandboxSession:
                 self._runtime_context,
                 self._render_runtime_context,
                 self._environment_context,
+                self._render_environment_context,
                 self._temporary_directory,
+                self._render_temporary_directory,
             )
         ):
             message = (
@@ -360,10 +365,9 @@ class BelgieSandboxSession:
                     self._temporary_directory = temporary_directory
                     workspace = _resolved_path(temporary_directory.name)
                     self._workspace = workspace
-                    packages_enabled = self._allow_package_imports or self._enable_rendering
-                    dependencies = _render_dependencies(self._plugins) if self._enable_rendering else None
+                    packages_enabled = self._allow_package_imports
                     environment_context = belgie.Environment(
-                        dependencies,
+                        None,
                         path=workspace,
                         options=belgie.EnvironmentOptions(
                             allow_remote=packages_enabled,
@@ -375,8 +379,6 @@ class BelgieSandboxSession:
                     if not isinstance(active_environment, _ActiveEnvironment):
                         message = "The installed Belgie package returned an incompatible environment."
                         raise BelgieSandboxUnavailableError(message)  # noqa: TRY301
-                    if self._enable_rendering:
-                        await active_environment.install()
                     script_runtime_context = belgie.Runtime(
                         env=active_environment,
                         options=belgie.RuntimeOptions(
@@ -394,17 +396,34 @@ class BelgieSandboxSession:
                         raise BelgieSandboxUnavailableError(message)  # noqa: TRY301
                     self._active_runtime = active_runtime
                     if self._enable_rendering:
+                        render_temporary_directory = TemporaryDirectory(prefix="belgie-render-")
+                        self._render_temporary_directory = render_temporary_directory
+                        render_workspace = _resolved_path(render_temporary_directory.name)
+                        self._render_workspace = render_workspace
+                        render_environment_context = belgie.Environment(
+                            _render_dependencies(self._plugins),
+                            path=render_workspace,
+                            options=belgie.EnvironmentOptions(
+                                allow_remote=True,
+                                no_npm=False,
+                            ),
+                        )
+                        render_environment = await render_environment_context.__aenter__()
+                        self._render_environment_context = render_environment_context
+                        if not isinstance(render_environment, _ActiveEnvironment):
+                            message = "The installed Belgie package returned an incompatible render environment."
+                            raise BelgieSandboxUnavailableError(message)  # noqa: TRY301
+                        await render_environment.install()
                         render_runtime_context = belgie.Runtime(
-                            env=active_environment,
+                            env=render_environment,
                             options=belgie.RuntimeOptions(
                                 max_old_generation_size_mb=self._max_old_generation_size_mb,
                                 permissions=belgie.RuntimePermissions(
-                                    allow_env=[],
-                                    allow_ffi=[str(workspace / "node_modules")],
+                                    allow_ffi=[str(render_workspace / "node_modules")],
                                     allow_net=["localhost"],
-                                    allow_read=[str(workspace)],
+                                    allow_read=[str(render_workspace)],
                                     allow_sys=DEFAULT_VITE_SYS_PERMISSIONS,
-                                    allow_write=[str(workspace)],
+                                    allow_write=[str(render_workspace)],
                                 ),
                             ),
                         )
@@ -438,7 +457,7 @@ class BelgieSandboxSession:
     ) -> None:
         await self._close_resources(exc_type, exc, traceback)
 
-    async def _close_resources(  # noqa: C901, PLR0912
+    async def _close_resources(  # noqa: C901, PLR0912, PLR0915
         self,
         exc_type: type[BaseException] | None,
         exc: BaseException | None,
@@ -464,6 +483,14 @@ class BelgieSandboxSession:
                 else:
                     self._runtime_context = None
                     self._active_runtime = None
+            render_environment_context = self._render_environment_context
+            if render_environment_context is not None:
+                try:
+                    await render_environment_context.__aexit__(exc_type, exc, traceback)
+                except BaseException as error:  # noqa: BLE001
+                    first_error = first_error or error
+                else:
+                    self._render_environment_context = None
             environment_context = self._environment_context
             if environment_context is not None:
                 try:
@@ -472,6 +499,15 @@ class BelgieSandboxSession:
                     first_error = first_error or error
                 else:
                     self._environment_context = None
+            render_temporary_directory = self._render_temporary_directory
+            if render_temporary_directory is not None:
+                try:
+                    render_temporary_directory.cleanup()
+                except BaseException as error:  # noqa: BLE001
+                    first_error = first_error or error
+                else:
+                    self._render_temporary_directory = None
+                    self._render_workspace = None
             temporary_directory = self._temporary_directory
             if temporary_directory is not None:
                 try:
@@ -530,11 +566,11 @@ class BelgieSandboxSession:
 
     async def render_widget(self, source: str, *, timeout: float = DEFAULT_TIMEOUT) -> str:  # noqa: ASYNC109, C901
         render_runtime = self._render_runtime
-        workspace = self._workspace
+        render_workspace = self._render_workspace
         if self._active_runtime is None:
             message = "The Belgie sandbox session is not open."
             raise BelgieSandboxError(message)
-        if render_runtime is None or workspace is None or not self._enable_rendering:
+        if render_runtime is None or render_workspace is None or not self._enable_rendering:
             message = (
                 "Widget rendering is unavailable: enable_rendering must be True on an owned session "
                 "(custom `runtime=` does not provide a renderer)."
@@ -550,7 +586,7 @@ class BelgieSandboxSession:
         belgie_error = _load_belgie_error()
         with TemporaryDirectory(
             prefix="render-",
-            dir=workspace,
+            dir=render_workspace,
             ignore_cleanup_errors=True,
         ) as render_home:
             render_dir = Path(render_home)
