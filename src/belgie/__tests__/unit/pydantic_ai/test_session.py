@@ -91,30 +91,38 @@ async def test_rendering_uses_side_channel_without_script_ffi(fake_belgie) -> No
         workspace = session.workspace
         assert workspace is not None
         assert await session.render_widget(source) == "<html>rendered</html>"
-        environment = fake_belgie.environments[0]
-        assert environment.dependencies == DEFAULT_RENDER_DEPENDENCIES
-        assert environment.options.allow_remote is True
-        assert environment.options.no_npm is False
-        assert environment.install_calls == 1
+        assert len(fake_belgie.environments) == 2
+        script_environment = fake_belgie.environments[0]
+        render_environment = fake_belgie.environments[1]
+        assert script_environment.dependencies is None
+        assert script_environment.options.allow_remote is False
+        assert script_environment.options.no_npm is True
+        assert script_environment.install_calls == 0
+        assert render_environment.dependencies == DEFAULT_RENDER_DEPENDENCIES
+        assert render_environment.options.allow_remote is True
+        assert render_environment.options.no_npm is False
+        assert render_environment.install_calls == 1
         assert len(fake_belgie.runtimes) == 2
         script_permissions = fake_belgie.runtimes[0].options.permissions.kwargs
         assert script_permissions == {"allow_read": [str(workspace)]}
+        render_workspace = render_environment.workspace
         render_permissions = fake_belgie.runtimes[1].options.permissions.kwargs
         assert render_permissions == {
-            "allow_read": [str(workspace)],
-            "allow_env": [],
+            "allow_read": [str(render_workspace)],
+            "allow_ffi": [str(render_workspace / "node_modules")],
             "allow_net": ["localhost"],
-            "allow_ffi": [str(workspace / "node_modules")],
             "allow_sys": list(DEFAULT_VITE_SYS_PERMISSIONS),
-            "allow_write": [str(workspace)],
+            "allow_write": [str(render_workspace)],
         }
+        assert "allow_env" not in render_permissions
         assert len(fake_belgie.command_calls) == 1
         command_name, argv = fake_belgie.command_calls[0]
         assert command_name == "@belgie/vite"
-        _assert_isolated_render_paths(argv, workspace)
-        assert not any(workspace.glob("render-*"))
+        _assert_isolated_render_paths(argv, render_workspace)
+        assert not any(render_workspace.glob("render-*"))
 
     assert all(runtime.exited for runtime in fake_belgie.runtimes)
+    assert all(environment.exited for environment in fake_belgie.environments)
 
 
 async def test_concurrent_renders_use_isolated_paths(fake_belgie) -> None:
@@ -122,8 +130,7 @@ async def test_concurrent_renders_use_isolated_paths(fake_belgie) -> None:
     source_b = "export default function B() { return null; }"
 
     async with BelgieSandboxSession(enable_rendering=True) as session:
-        workspace = session.workspace
-        assert workspace is not None
+        render_workspace = fake_belgie.environments[1].workspace
         results = await asyncio.gather(
             session.render_widget(source_a),
             session.render_widget(source_b),
@@ -133,9 +140,9 @@ async def test_concurrent_renders_use_isolated_paths(fake_belgie) -> None:
         render_dirs: list[Path] = []
         for command_name, argv in fake_belgie.command_calls:
             assert command_name == "@belgie/vite"
-            render_dirs.append(_assert_isolated_render_paths(argv, workspace))
+            render_dirs.append(_assert_isolated_render_paths(argv, render_workspace))
         assert render_dirs[0] != render_dirs[1]
-        assert not any(workspace.glob("render-*"))
+        assert not any(render_workspace.glob("render-*"))
 
 
 async def test_render_widget_without_side_channel_is_an_error(fake_belgie) -> None:

@@ -138,8 +138,10 @@ Import from `belgie.errors`.
 
 - **Scripts:** sandboxed by `RuntimePermissions` on the package-worker path; agent defaults deny host `/etc`/`/proc`,
   `allow_sys`, and `allow_ffi`. Lightweight Scripts are limited to module loading and V8 execution.
-- **Inline `render_widget` (`@belgie/vite`):** Vite runs on a Belgie-owned side-channel with workspace read/write/FFI
-  and limited `allow_sys` (no host `/etc`/`/proc`/`ldd`); model-visible Scripts never receive those grants.
+- **Inline `render_widget` (`@belgie/vite`):** Vite runs on a separate Environment and side-channel with workspace
+  read/write, FFI under `node_modules`, localhost network, and limited `allow_sys` (no host `/etc`/`/proc`/`ldd`);
+  host env is denied. Model-visible Scripts stay on their own Environment and never receive those grants; rendering
+  does not enable package imports for Scripts.
 - **Commands:** trusted project tooling only; full Deno/Node capabilities by default.
 
 For environment lifecycle details, see [environment.md](environment.md).

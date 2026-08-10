@@ -72,6 +72,12 @@ def test_instructions_reflect_configuration() -> None:
     assert "@belgie/vite" not in strict
     assert "render_widget" not in strict
 
+    rendering_only = BelgieSandbox(enable_rendering=True).get_instructions()
+    assert rendering_only is not None
+    assert "imports are disabled" in rendering_only
+    assert "render_widget" in rendering_only
+    assert "because rendering installs" not in rendering_only
+
     open_profile = BelgieSandbox(
         allow_package_imports=True,
         allow_network=True,
@@ -82,7 +88,6 @@ def test_instructions_reflect_configuration() -> None:
     assert open_profile is not None
     assert "imports are enabled" in open_profile
     assert "network access is enabled" in open_profile
-    assert "@belgie/vite" in open_profile
     assert "render_widget" in open_profile
     assert "12s deadline" in open_profile
 

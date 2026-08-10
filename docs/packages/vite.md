@@ -88,9 +88,10 @@ middleware = BelgieMiddleware(
 )
 ```
 
-`plugins` requires `enable_rendering=True`. Rendering also installs `@belgie/vite` (same remote
-package resolution as `allow_package_imports=True` on Pydantic AI). Pass the complete TSX module
-source to `render_widget`. Default-export a React component — do not import or call `render()`:
+`plugins` requires `enable_rendering=True`. Rendering installs `@belgie/vite` into a separate
+renderer Environment; it does not enable npm/JSR/URL imports for model scripts. Pass the complete
+TSX module source to `render_widget`. Default-export a React component — do not import or call
+`render()`:
 
 ```tsx
 export default function Widget() {
@@ -103,13 +104,15 @@ renderer side channel. The tool result is one self-contained HTML document with 
 CSS, and supported assets.
 
 !!! warning "Plugins are a privilege boundary"
-    Configured `plugins` run in the renderer with workspace read/write/FFI and the limited system
-    access Vite loaders need. Treat plugin code as reviewed application code. Use `plugins=()` for
-    untrusted agents.
+    Configured `plugins` run in the renderer with workspace read/write, FFI under `node_modules`,
+    localhost network access Vite's build path needs, and the limited `allow_sys` grants Vite
+    loaders need. Host environment variables are denied. Treat plugin code as reviewed application
+    code. Use `plugins=()` for untrusted agents.
 
-Model-visible `run_typescript` / `run_code` scripts stay workspace-restricted. They do not receive
-host system paths, FFI, or renderer-only grants. Custom caller-owned runtimes do not provide the
-rendering side channel.
+Model-visible `run_typescript` / `run_code` scripts stay on a separate Environment and remain
+workspace-restricted. They do not receive host system paths, FFI, package installs from rendering,
+or other renderer-only grants. Custom caller-owned runtimes do not provide the rendering side
+channel.
 
 ## Contrast with `@belgie/mcp`
 
