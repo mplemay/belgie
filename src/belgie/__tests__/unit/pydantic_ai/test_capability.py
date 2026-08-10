@@ -149,9 +149,11 @@ async def test_deferred_capability_hides_tool_until_loaded(fake_belgie) -> None:
 
     assert capability.id == DEFAULT_CAPABILITY_ID
     assert model.last_model_request_parameters is not None
-    tool_names = {tool.name for tool in model.last_model_request_parameters.function_tools}
-    assert "load_capability" in tool_names
-    assert "run_typescript" not in tool_names
+    params = model.last_model_request_parameters
+    declared = {tool.name for tool in params.declared_function_tools}
+    assert "load_capability" in declared
+    assert "run_typescript" not in declared
+    assert params.visibility_of("run_typescript") == "withheld"
 
 
 async def test_durable_execution_is_rejected(fake_belgie) -> None:
