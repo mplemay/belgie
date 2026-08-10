@@ -123,13 +123,17 @@ options = RuntimeOptions(
     permissions=RuntimePermissions(
         allow_net=["api.example.com"],
         allow_read=["./data"],
-        allow_write=[],
+        allow_write=["./output"],
     ),
 )
 
 with Runtime(options=options) as runtime:
     ...
 ```
+
+Belgie follows Deno permission list semantics: omit a grant (or pass `None`) to deny that category;
+pass an empty list (`allow_write=[]`) for a global allow of that category; pass a non-empty list to
+allow only those entries.
 
 Use the narrowest permissions that satisfy the script. `RuntimePermissions.all()` and
 `RuntimePermissions.none()` are available when a deliberately broad or empty policy is required.

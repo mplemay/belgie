@@ -86,7 +86,7 @@ export async function buildWidgetFile(widgetPath: string, plugins: PluginOption[
   const processEnvironment = Object.getOwnPropertyDescriptor(process, "env");
   Object.defineProperty(process, "env", {
     configurable: true,
-    value: { ...(processEnvironment?.value as Record<string, string> | undefined), NODE_ENV: "production" },
+    value: { NODE_ENV: "production" },
   });
   try {
     const [{ default: react }, { build }] = await Promise.all([import("@vitejs/plugin-react"), import("vite")]);

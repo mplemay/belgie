@@ -230,10 +230,11 @@ capability = BelgieSandbox(enable_rendering=True, plugins=[])
 `render_widget` builds HTML with `@belgie/vite` on a Belgie-owned renderer side-channel (not in the
 model-visible Deno worker). The agent Script stays workspace-restricted — no host `/etc`/`/proc`,
 `allow_sys`, or `allow_ffi` — while Vite runs only in that host-mediated worker (workspace
-FFI/sys/write, no host path grants) and returns one self-contained HTML string with inline
-JavaScript, CSS, and assets. Host-configured Vite plugins run only during the server build; treat
-them as reviewed application code and use `plugins=()` for untrusted agents. This API is independent
-from `@belgie/mcp` and its path-based `widget.tsx` development and production flow.
+read/write, FFI under `node_modules`, localhost network, limited `allow_sys`; host env denied) and
+returns one self-contained HTML string with inline JavaScript, CSS, and assets. Host-configured Vite
+plugins run only during the server build; treat them as reviewed application code and use
+`plugins=()` for untrusted agents. This API is independent from `@belgie/mcp` and its path-based
+`widget.tsx` development and production flow.
 
 ## Examples
 

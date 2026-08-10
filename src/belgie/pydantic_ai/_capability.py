@@ -126,12 +126,7 @@ class BelgieSandbox(AbstractCapability[AgentDepsT]):
                 "caller-managed Belgie runtime. Export a default function or named `run` function and "
                 "return JSON-serializable data. Runtime access and state lifetime depend on the supplied session."
             )
-        if self.enable_rendering:
-            package_text = (
-                "npm, JSR, and URL imports are enabled because rendering installs `@belgie/vite` "
-                "(same remote package resolution as `allow_package_imports=True`)"
-            )
-        elif self.allow_package_imports:
+        if self.allow_package_imports:
             package_text = "npm, JSR, and URL imports are enabled"
         else:
             package_text = "npm, JSR, URL, and relative imports are disabled"
