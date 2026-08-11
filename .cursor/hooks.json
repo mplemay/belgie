@@ -1,0 +1,12 @@
+{
+  "hooks": {
+    "stop": [
+      {
+        "command": ".cursor/hooks/after-agent-stop.sh",
+        "loop_limit": 5,
+        "timeout": 600
+      }
+    ]
+  },
+  "version": 1
+}

@@ -11,7 +11,7 @@
   - *Usage:* `uv run prek`
   - *Files:* [configuration](prek.toml)
   - *Tools:* `rumdl` (markdown), `ruff` (linting), `ty` (type checker), `oxlint` /
-    `oxfmt` (JS/TS via belgie)
+    `oxfmt` (JS/TS via belgie), `shellcheck` / `shfmt` (shell)
   - *Rules:*
     - **Don't run the underlying linters / formatters directly.**
     - **Never use file-wide ignores.**
@@ -105,10 +105,3 @@
 - Tests live under `__tests__/` with `unit/` and `integration/` subdirectories. Group tests by domain in
   subfolders (`agent/`, `cli/`, `pydantic_ai/`, `langchain/`, `_core/`, etc.).
 - Integration tests are marked with `@pytest.mark.integration`
-
-## After Changes
-
-1. `uv run pytest` (note: if anything is broken, figure out the root cause, fix it, and start again)
-2. `uv run prek run --all-files` (note: if the linter fails, restart from step 1)
-3. `git commit`
-4. `git push`

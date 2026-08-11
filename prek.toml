@@ -163,4 +163,21 @@ hooks = [
     pass_filenames = false,
     require_serial = true,
   },
+  {
+    id = "shfmt",
+    name = "shfmt",
+    entry = "uv run shfmt",
+    args = ["-w", "-i", "2"],
+    language = "python",
+    types = ["shell"],
+    require_serial = true,
+  },
+  {
+    id = "shellcheck",
+    name = "shellcheck",
+    entry = "uv run shellcheck",
+    language = "python",
+    types = ["shell"],
+    require_serial = true,
+  },
 ]
