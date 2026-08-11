@@ -1,8 +1,9 @@
 use std::collections::HashSet;
 
+use belgie_core::JsValue;
 use deno_core::{
     serde_json::{Map, Number, Value},
-    serde_v8, v8,
+    v8,
 };
 use pyo3::{
     Bound, Py, PyAny, PyResult, Python,
@@ -20,20 +21,22 @@ const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PyJsValue {
-    inner: Value,
+    inner: JsValue,
 }
 
 impl PyJsValue {
     pub(crate) fn from_json(value: Value) -> Self {
-        Self { inner: value }
+        Self {
+            inner: JsValue::from_json_unchecked(value),
+        }
     }
 
     pub(crate) fn as_json(&self) -> &Value {
-        &self.inner
+        self.inner.as_json()
     }
 
     pub(crate) fn into_json(self) -> Value {
-        self.inner
+        self.inner.into_json()
     }
 
     pub(crate) fn from_py(value: &Bound<'_, PyAny>) -> PyResult<Self> {
@@ -137,16 +140,16 @@ impl PyJsValue {
     }
 
     pub(crate) fn to_py(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        json_to_py(py, &self.inner)
+        json_to_py(py, self.inner.as_json())
     }
 
     pub(crate) fn to_v8<'s, 'i>(
         &self,
         scope: &mut v8::PinScope<'s, 'i>,
     ) -> Result<v8::Local<'s, v8::Value>, BindingError> {
-        serde_v8::to_v8(scope, &self.inner).map_err(|error| {
-            BindingError::value_conversion(format!("Could not convert JSON value to V8: {error}",))
-        })
+        self.inner
+            .to_v8(scope)
+            .map_err(|error| BindingError::value_conversion(error.message))
     }
 
     pub(crate) fn from_v8<'s, 'i>(

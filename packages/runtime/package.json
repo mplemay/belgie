@@ -1,0 +1,36 @@
+{
+  "description": "Private JavaScript and TypeScript sandbox runtime prototype for Belgie.",
+  "devDependencies": {
+    "@types/node": "26.1.2",
+    "tsdown": "^0.22.14",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "native",
+    "README.md"
+  ],
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "name": "@belgie/runtime",
+  "private": true,
+  "scripts": {
+    "build": "npm run build:native && tsdown",
+    "build:native": "cargo build --manifest-path ../../Cargo.toml -p belgie-node -p belgie-worker && mkdir -p native && cp ../../target/debug/libbelgie_node.dylib native/belgie_runtime_binding.node && cp ../../target/debug/belgie-runtime-worker native/belgie-runtime-worker && chmod 755 native/belgie-runtime-worker",
+    "check": "tsc --noEmit",
+    "test": "npm run build && vitest run && npm run check",
+    "test:watch": "vitest"
+  },
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "version": "0.0.0"
+}

@@ -1,0 +1,18 @@
+[package]
+name = "belgie-worker"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "belgie-runtime-worker"
+path = "src/main.rs"
+
+[dependencies]
+belgie-core = { path = "../belgie-core" }
+belgie-protocol = { path = "../belgie-protocol" }
+tokio = { version = "1.53.1", features = ["rt"] }
+
+[dev-dependencies]
+belgie-pool = { path = "../belgie-pool" }
+serde_json = "1.0.151"
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "time"] }

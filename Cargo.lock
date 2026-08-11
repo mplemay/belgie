@@ -390,6 +390,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "aws-lc-rs",
+ "belgie-core",
  "chrono",
  "deno_ast",
  "deno_cache_dir",
@@ -437,6 +438,61 @@ dependencies = [
  "tokio",
  "url",
  "yaml_parser",
+]
+
+[[package]]
+name = "belgie-core"
+version = "0.1.0"
+dependencies = [
+ "deno_ast",
+ "deno_core",
+ "deno_error",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "belgie-node"
+version = "0.1.0"
+dependencies = [
+ "belgie-pool",
+ "libc",
+ "napi",
+ "napi-build",
+ "napi-derive",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "belgie-pool"
+version = "0.1.0"
+dependencies = [
+ "belgie-protocol",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "belgie-protocol"
+version = "0.1.0"
+dependencies = [
+ "belgie-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "belgie-worker"
+version = "0.1.0"
+dependencies = [
+ "belgie-core",
+ "belgie-pool",
+ "belgie-protocol",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -1001,6 +1057,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 
 [[package]]
+name = "convert_case"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "affbf0190ed2caf063e3def54ff444b449371d55c58e513a95ab98eca50adb49"
+dependencies = [
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "cooked-waker"
 version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1328,6 +1393,12 @@ dependencies = [
  "quote",
  "syn 2.0.119",
 ]
+
+[[package]]
+name = "ctor"
+version = "1.0.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "914a755b7c2d4af2bdcff7ce1739e2db9a1b81a9b07123d8015786ae03c0980d"
 
 [[package]]
 name = "ctr"
@@ -4882,6 +4953,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "libloading"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "754ca22de805bb5744484a5b151a9e1a8e837d5dc232c2d7d8c2e3492edc8b60"
+dependencies = [
+ "cfg-if",
+ "windows-link",
+]
+
+[[package]]
 name = "libm"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5167,6 +5248,65 @@ dependencies = [
 ]
 
 [[package]]
+name = "napi"
+version = "3.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "459197f1592f4c3dbbf9c1b13f5a4599a343e4ef66b96bc340e2a518b36a6662"
+dependencies = [
+ "bitflags",
+ "ctor",
+ "futures",
+ "libc",
+ "napi-build",
+ "napi-sys",
+ "nohash-hasher",
+ "rustc-hash 2.1.3",
+ "tokio",
+]
+
+[[package]]
+name = "napi-build"
+version = "2.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60fdf9b392c50e7c4170fa633bd909490ed7835cea4c046776d1a4dd8d2ae0ab"
+
+[[package]]
+name = "napi-derive"
+version = "3.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0fa55ea69990c90b888e9e77044410e304ce7f35de599dc6d0b5c1923d2e59af"
+dependencies = [
+ "convert_case",
+ "ctor",
+ "napi-derive-backend",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "napi-derive-backend"
+version = "6.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df4056ac7c18e4438ccf0edaed4340ca0d269278c8ec19284f7b23cb039fd0ae"
+dependencies = [
+ "convert_case",
+ "proc-macro2",
+ "quote",
+ "semver",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "napi-sys"
+version = "3.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85fbf1fa9f1babfe396d74bbbf52b3643770243e8f5b0b46715d4caf7f0dfc9a"
+dependencies = [
+ "libloading 0.9.0",
+]
+
+[[package]]
 name = "napi_sym"
 version = "0.187.0"
 source = "git+https://github.com/denoland/deno.git?tag=v2.9.5#17fadf33a8df3af9488b9f42efd1f2290d6dc7a3"
@@ -5277,6 +5417,12 @@ dependencies = [
  "serde_json",
  "url",
 ]
+
+[[package]]
+name = "nohash-hasher"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bf50223579dc7cdcfb3bfcacf7069ff68243f8c363f62ffa99cf000a6b9c451"
 
 [[package]]
 name = "nom"
