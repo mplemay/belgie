@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from pydantic_ai import RunContext
-    from pydantic_ai.toolsets import AbstractToolset
 
 RUN_TYPESCRIPT_TOOL_NAME: Final[str] = "run_typescript"
 RENDER_WIDGET_TOOL_NAME: Final[str] = "render_widget"
@@ -92,7 +91,7 @@ class BelgieSandboxToolset(FunctionToolset[AgentDepsT]):
                 sequential=True,
             )
 
-    async def for_run(self, ctx: RunContext[AgentDepsT]) -> AbstractToolset[AgentDepsT]:
+    async def for_run(self, ctx: RunContext[AgentDepsT]) -> BelgieSandboxToolset[AgentDepsT]:
         del ctx
         return BelgieSandboxToolset[AgentDepsT](
             allow_package_imports=self._allow_package_imports,

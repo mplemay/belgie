@@ -241,7 +241,7 @@ async fn build_module_graph_inner(
                 unstable_bytes_imports: context.enable_raw_imports(),
                 unstable_text_imports: true,
                 unstable_css_imports: context.enable_raw_imports(),
-                // Match Deno 2.9.3: leave disabled. deno_graph only permits
+                // Match Deno 2.9.5: leave disabled. deno_graph only permits
                 // yaml/toml/jsonc/json5 attributes; an embedder resolver must
                 // redirect them. Do not tie this to enable_raw_imports until
                 // that wiring lands.

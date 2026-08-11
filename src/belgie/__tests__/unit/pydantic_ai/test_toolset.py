@@ -29,9 +29,7 @@ async def active_toolset(
     capability: BelgieSandbox[None] | None = None,
 ) -> AsyncIterator[BelgieSandboxToolset[None]]:
     toolset = (capability or BelgieSandbox[None]()).get_toolset()
-    assert isinstance(toolset, BelgieSandboxToolset)
     run_toolset = await toolset.for_run(cast("RunContext[None]", None))
-    assert isinstance(run_toolset, BelgieSandboxToolset)
     async with run_toolset:
         yield run_toolset
 
@@ -72,9 +70,7 @@ async def test_session_is_lazy_and_run_scoped(fake_belgie) -> None:
 
 async def test_owned_session_cleanup_can_be_retried(fake_belgie) -> None:
     toolset = BelgieSandbox[None]().get_toolset()
-    assert isinstance(toolset, BelgieSandboxToolset)
     run_toolset = await toolset.for_run(cast("RunContext[None]", None))
-    assert isinstance(run_toolset, BelgieSandboxToolset)
     await run_toolset.__aenter__()
     await run_toolset.run_typescript("code")
     fake_belgie.runtime_exit_error = RuntimeError("cleanup failed")
@@ -94,9 +90,7 @@ async def test_owned_session_cleanup_can_be_retried(fake_belgie) -> None:
 
 async def test_owned_session_startup_cleanup_can_be_retried(fake_belgie) -> None:
     toolset = BelgieSandbox[None]().get_toolset()
-    assert isinstance(toolset, BelgieSandboxToolset)
     run_toolset = await toolset.for_run(cast("RunContext[None]", None))
-    assert isinstance(run_toolset, BelgieSandboxToolset)
     await run_toolset.__aenter__()
     fake_belgie.start_error = RuntimeError("worker failed")
     fake_belgie.environment_exit_error = RuntimeError("cleanup failed")
@@ -130,7 +124,6 @@ async def test_script_failure_and_output_limit_are_model_retries(fake_belgie) ->
 
 async def test_unentered_toolset_is_a_caller_error(fake_belgie) -> None:
     toolset = BelgieSandbox[None]().get_toolset()
-    assert isinstance(toolset, BelgieSandboxToolset)
     with pytest.raises(BelgieSandboxExecutionError, match="not active"):
         await toolset.run_typescript("code")
 

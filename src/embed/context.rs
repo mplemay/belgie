@@ -412,6 +412,7 @@ impl EmbedContext {
             DenoGraphLoaderOptions {
                 file_header_overrides: HashMap::new(),
                 permissions: None,
+                file_permission_api_name: None,
                 reporter: None,
                 include_npm_sources: !options.no_npm,
             },

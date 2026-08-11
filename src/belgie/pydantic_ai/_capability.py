@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from pydantic_ai.agent.abstract import AbstractAgent
-    from pydantic_ai.toolsets import AgentToolset
 
     _AgentOutputT = TypeVar("_AgentOutputT")
 
@@ -162,7 +161,7 @@ class BelgieSandbox(AbstractCapability[AgentDepsT]):
             raise UserError(message)
         return self
 
-    def get_toolset(self) -> AgentToolset[AgentDepsT]:
+    def get_toolset(self) -> BelgieSandboxToolset[AgentDepsT]:
         return BelgieSandboxToolset[AgentDepsT](
             allow_package_imports=self.allow_package_imports,
             allow_network=self.allow_network,

@@ -18,15 +18,20 @@ use deno_resolver::graph::{
 use deno_resolver::loader::AllowJsonImports;
 use deno_resolver::loader::LoadedModule;
 use deno_resolver::loader::LoadedModuleOrAsset;
+use deno_resolver::loader::MemoryFilesRc;
 use deno_runtime::deno_permissions::{OpenAccessKind, PermissionsContainer};
 use deno_semver::npm::NpmPackageReqReference;
 use futures::FutureExt;
 use node_resolver::NodeResolutionKind;
 use node_resolver::ResolutionMode;
+use node_resolver::analyze::CjsAnalysisSourceProvider;
+use sys_traits::FsRead;
 use url::Url;
 
+use crate::embed::ModuleReadChecker;
 use crate::embed::PackageRuntimeState;
 use crate::embed::insert_memory_file;
+use crate::embed::sys::EmbedSys;
 
 #[derive(Debug)]
 pub(crate) struct PythonModuleLoader {
@@ -251,6 +256,33 @@ fn transpile_source(
         .map_err(JsErrorBox::from_err)?
         .into_source();
     Ok(transpiled.text)
+}
+
+struct BelgieCjsAnalysisSourceProvider<'a> {
+    permissions: PermissionsContainer,
+    module_read_checker: &'a ModuleReadChecker,
+    memory_files: &'a MemoryFilesRc,
+    sys: EmbedSys,
+}
+
+impl CjsAnalysisSourceProvider for BelgieCjsAnalysisSourceProvider<'_> {
+    fn load_source<'a>(&'a self, specifier: &Url) -> Option<Cow<'a, str>> {
+        if let Some(file) = self.memory_files.get(specifier) {
+            return Some(Cow::Owned(
+                String::from_utf8_lossy(file.source.as_ref()).into_owned(),
+            ));
+        }
+        let path = self
+            .module_read_checker
+            .ensure_specifier(&self.permissions, specifier)
+            .ok()?
+            .to_file_path()
+            .ok()?;
+        self.sys
+            .fs_read_to_string_lossy(&path)
+            .ok()
+            .map(|source| Cow::Owned(source.into_owned()))
+    }
 }
 
 #[derive(Debug)]
@@ -490,6 +522,12 @@ impl PackageAwareModuleLoader {
             .state
             .module_read_checker
             .ensure_specifier(&self.permissions, resolved_specifier.as_ref())?;
+        let cjs_analysis_source_provider = BelgieCjsAnalysisSourceProvider {
+            permissions: self.permissions.deep_clone_without_prompt(),
+            module_read_checker: &self.state.module_read_checker,
+            memory_files: &self.state.memory_files,
+            sys: EmbedSys::default(),
+        };
         let loaded = self
             .state
             .module_loader
@@ -498,6 +536,7 @@ impl PackageAwareModuleLoader {
                 &resolved_specifier,
                 maybe_referrer_url.as_ref(),
                 &deno_requested,
+                Some(&cjs_analysis_source_provider),
             )
             .await
             .map_err(JsErrorBox::from_err)?;

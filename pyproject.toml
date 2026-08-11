@@ -136,6 +136,9 @@ markers = [
 ]
 filterwarnings = [
     "error",
+    # langsmith 0.10.15+ calls asyncio.iscoroutinefunction at import time;
+    # deprecated on 3.14. Remove once langsmith-sdk#3347 is released.
+    "ignore::DeprecationWarning:langsmith._internal._beta_decorator",
 ]
 
 
