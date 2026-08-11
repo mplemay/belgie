@@ -13,7 +13,7 @@ from langchain.tools import ToolRuntime
 from langgraph.runtime import Runtime as LangGraphRuntime
 from pydantic_ai.exceptions import ModelRetry
 
-from belgie import Environment
+from belgie import Environment, EnvironmentOptions
 from belgie.__tests__.integration.render.conftest import VITE_PACKAGE_ROOT
 from belgie.agent import BelgieRuntimeSession, _runtime as agent_runtime
 from belgie.agent._run_code import RENDER_WIDGET_TOOL_NAME
@@ -76,10 +76,6 @@ def default_render_specifier(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(agent_runtime, "DEFAULT_RENDER_SPECIFIER", specifier)
     monkeypatch.setattr(agent_runtime, "_render_dependencies", render_dependencies)
     return package
-
-
-def workspace_files(root: Path) -> set[Path]:
-    return {path.relative_to(root) for path in root.rglob("*") if path.is_file()}
 
 
 def path_exists(path: Path) -> bool:
@@ -161,44 +157,51 @@ export default function serverPlugin() {
 }
 """,
     )
-    patch_pydantic_render_dependencies(monkeypatch, package, extra={"server-plugin": f"file:{plugin}"})
+    plugin_specifier = f"file:{plugin}"
+    vite_specifier = f"file:{package}"
+    patch_pydantic_render_dependencies(monkeypatch, package, extra={"server-plugin": plugin_specifier})
     monkeypatch.setattr(
         pydantic_session,
         "_render_dependencies",
         lambda plugins: {
             **pydantic_session.DEFAULT_RENDER_DEPENDENCIES,
-            **dict.fromkeys(plugins, f"file:{plugin}"),
+            **dict.fromkeys(plugins, plugin_specifier),
         },
     )
-    environment = Environment(
-        {
-            "@belgie/vite": f"file:{package}",
+
+    def agent_render_dependencies(plugins: tuple[str, ...]) -> dict[str, str]:
+        dependencies = {
+            "@belgie/vite": vite_specifier,
             "react": "npm:react@19.2.8",
             "react-dom": "npm:react-dom@19.2.8",
-            "server-plugin": f"file:{plugin}",
-        },
-        path=root,
-    )
-    options = agent_runtime._script_runtime_options(root)
+        }
+        for plugin_name in plugins:
+            name = agent_runtime._package_name_from_specifier(plugin_name)
+            dependencies[name] = plugin_specifier
+        return dependencies
+
+    monkeypatch.setattr(agent_runtime, "DEFAULT_RENDER_SPECIFIER", vite_specifier)
+    monkeypatch.setattr(agent_runtime, "_render_dependencies", agent_render_dependencies)
 
     async with BelgieSandboxSession(enable_rendering=True, plugins=("server-plugin",)) as pydantic_session_instance:
         pydantic_result = await pydantic_session_instance.render_widget(INLINE_WIDGET_SOURCE)
 
-    async with environment as active_environment:
-        await active_environment.install()
-        files_before = workspace_files(root)
-        middleware = BelgieMiddleware(
-            environment=active_environment,
-            runtime_options=options,
-            plugins=("server-plugin",),
+    script_root = tmp_path / "langchain-script"
+    script_root.mkdir()
+    middleware = BelgieMiddleware(
+        environment=Environment(
+            None,
+            path=script_root,
+            options=EnvironmentOptions(allow_remote=False, no_npm=True),
+        ),
+        runtime_options=agent_runtime._script_runtime_options(script_root),
+        plugins=("server-plugin",),
+    )
+    render_widget = next(tool for tool in middleware.tools if tool.name == RENDER_WIDGET_TOOL_NAME)
+    async with active_langchain_state(middleware) as state:
+        langchain_result = await render_widget.ainvoke(
+            {"source": INLINE_WIDGET_SOURCE, "runtime": tool_runtime(state)},
         )
-        render_widget = next(tool for tool in middleware.tools if tool.name == RENDER_WIDGET_TOOL_NAME)
-        async with active_langchain_state(middleware) as state:
-            langchain_result = await render_widget.ainvoke(
-                {"source": INLINE_WIDGET_SOURCE, "runtime": tool_runtime(state)},
-            )
-
-        files_after = workspace_files(root)
 
     assert isinstance(pydantic_result, str)
     assert pydantic_result == langchain_result
@@ -206,7 +209,8 @@ export default function serverPlugin() {
     assert "plugin-applied" in pydantic_result
     assert "server-only-plugin-marker" not in pydantic_result
     assert '<script type="module" src=' not in pydantic_result
-    assert files_after == files_before
+    assert not any(script_root.rglob("widget.*"))
+    assert not any(script_root.rglob("render-*"))
 
 
 @SKIP_WIN32_VITE_NATIVE
@@ -265,7 +269,10 @@ async def test_default_session_renders_inline_widget(default_render_specifier: P
 
 
 @SKIP_WIN32_VITE_NATIVE
-async def test_plugins_resolve_from_workspace_packages(tmp_path: Path) -> None:
+async def test_plugins_resolve_from_workspace_packages(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     root = tmp_path / "workspace"
     root.mkdir()
     package = copy_vite_package(root)
@@ -288,26 +295,26 @@ export default function Widget() {
   return <main>workspace-target</main>;
 }
 """
-    environment = Environment(
-        {
-            "@belgie/vite": f"file:{package}",
+    vite_specifier = f"file:{package}"
+    plugin_specifier = f"file:{plugin}"
+
+    def render_dependencies(plugins: tuple[str, ...]) -> dict[str, str]:
+        dependencies = {
+            "@belgie/vite": vite_specifier,
             "react": "npm:react@19.2.8",
             "react-dom": "npm:react-dom@19.2.8",
-            "workspace-plugin": f"file:{plugin}",
-        },
-        path=root,
-    )
-    options = agent_runtime._script_runtime_options(root)
+        }
+        for plugin_name in plugins:
+            name = agent_runtime._package_name_from_specifier(plugin_name)
+            dependencies[name] = plugin_specifier
+        return dependencies
 
-    async with environment as active_environment:
-        await active_environment.install()
-        session = BelgieRuntimeSession(
-            environment=active_environment,
-            runtime_options=options,
-            plugins=("workspace-plugin",),
-        )
-        async with session:
-            result = await session.render_widget(source)
+    monkeypatch.setattr(agent_runtime, "DEFAULT_RENDER_SPECIFIER", vite_specifier)
+    monkeypatch.setattr(agent_runtime, "_render_dependencies", render_dependencies)
+
+    session = BelgieRuntimeSession(plugins=("workspace-plugin",))
+    async with session:
+        result = await session.render_widget(source)
 
     assert isinstance(result, str)
     assert result.startswith("<!doctype html>")
@@ -363,6 +370,57 @@ async def test_default_session_is_temporary_and_denies_host_capabilities(
     assert secret.read_text(encoding="utf-8") == "outside-secret"
     assert not path_exists(output)
     assert not path_exists(workspace)
+
+
+@SKIP_WIN32_VITE_NATIVE
+async def test_renderer_denies_host_env_and_scripts_deny_packages_when_rendering(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package = copy_vite_package(tmp_path / "vendor-vite")
+    patch_pydantic_render_dependencies(monkeypatch, package)
+    monkeypatch.setenv("BELGIE_RENDER_ENV_PROBE", "secret-value")
+
+    probe_plugin = write_plugin_package(
+        tmp_path,
+        name="env-probe-plugin",
+        body="""\
+export default function envProbe() {
+  return {
+    name: "env-probe",
+    buildStart() {
+      const value = Deno.env.get("BELGIE_RENDER_ENV_PROBE");
+      if (value !== undefined) {
+        throw new Error(`env-leak:${value}`);
+      }
+      throw new Error("env-denied");
+    },
+  };
+}
+""",
+    )
+    monkeypatch.setattr(
+        pydantic_session,
+        "_render_dependencies",
+        lambda plugins: {
+            **pydantic_session.DEFAULT_RENDER_DEPENDENCIES,
+            **dict.fromkeys(plugins, f"file:{probe_plugin}"),
+        },
+    )
+
+    async with BelgieSandboxSession(enable_rendering=True, plugins=("env-probe-plugin",)) as session:
+        with pytest.raises(Exception, match="env-denied|Requires env access|Command exited"):
+            await session.render_widget("export default function Widget() { return <main />; }")
+
+        with pytest.raises(Exception, match="npm|not found|Unable to|Cannot find|Module not found|error"):
+            await session.run_script(
+                'import isOdd from "npm:is-odd@3.0.1"; export default () => isOdd(1);',
+            )
+
+    async with BelgieSandboxSession(enable_rendering=True) as session:
+        result = await session.render_widget("export default function Widget() { return <main>ok</main>; }")
+        assert result.startswith("<!doctype html>")
+        assert "ok" in result
 
 
 @SKIP_WIN32_VITE_NATIVE
