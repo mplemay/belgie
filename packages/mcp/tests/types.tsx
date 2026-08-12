@@ -12,6 +12,7 @@ import {
   sendMessage,
   updateModelContext,
   useDisplayMode,
+  useHostInfo,
   useLayout,
   useLocale,
   useModal,
@@ -22,6 +23,8 @@ import {
 } from "@belgie/mcp";
 import type {
   DeviceType,
+  Host,
+  HostInfo,
   LayoutState,
   ModalOptions,
   RawToolResult,
@@ -136,6 +139,10 @@ async function narrowResult(): Promise<number> {
 
 export function TypeFixture() {
   const [hostDisplayMode, setHostDisplayMode] = useDisplayMode();
+  const hostInfo: HostInfo = useHostInfo();
+  const hostName: HostInfo["name"] = hostInfo.name;
+  const hostVersion: string | undefined = hostInfo.version;
+  const knownHost: Host = "claude";
   const layout: LayoutState = useLayout();
   const locale: string = useLocale();
   const requestViewSize = useRequestSize();
@@ -236,6 +243,9 @@ export function TypeFixture() {
   void genericCallersAreAbsent;
   void combinedUserHookIsAbsent;
   void hostDisplayMode;
+  void hostName;
+  void hostVersion;
+  void knownHost;
   void hostDisplayModeRequest;
   void locale;
   void theme;

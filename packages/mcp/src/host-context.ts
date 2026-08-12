@@ -14,6 +14,13 @@ export interface LayoutState {
   safeArea: SafeArea;
 }
 
+export type Host = "chatgpt" | "claude" | "cursor" | "goose" | "mistral-vibe" | "alpic";
+
+export interface HostInfo {
+  name: Host | (string & Record<never, never>) | undefined;
+  version: string | undefined;
+}
+
 export type DeviceType = "mobile" | "tablet" | "desktop" | "unknown";
 
 export interface UserAgent {
@@ -32,6 +39,14 @@ const DEFAULT_SAFE_AREA_INSETS: SafeAreaInsets = {
   right: 0,
   bottom: 0,
   left: 0,
+};
+const HOST_BY_REPORTED_NAME: Record<string, Host> = {
+  chatgpt: "chatgpt",
+  Claude: "claude",
+  Cursor: "cursor",
+  "MCP-UI Host": "goose",
+  "Le Chat": "mistral-vibe",
+  "alpic-playground": "alpic",
 };
 
 function useHostContextValue<K extends keyof McpUiHostContext>(app: App, key: K): McpUiHostContext[K] {
@@ -87,6 +102,17 @@ function normalizeLocale(locale: string): string {
   } catch {
     return DEFAULT_LOCALE;
   }
+}
+
+export function useHostInfo(): HostInfo {
+  const { app } = useConnectedWidgetContext("useHostInfo");
+  const hostInfo = app.getHostVersion();
+  const name = hostInfo?.name;
+
+  return {
+    name: name === undefined ? undefined : (HOST_BY_REPORTED_NAME[name] ?? name),
+    version: hostInfo?.version,
+  };
 }
 
 export function useDisplayMode() {
