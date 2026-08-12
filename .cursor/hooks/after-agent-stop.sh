@@ -47,9 +47,16 @@ if git diff --quiet --ignore-submodules HEAD 2>/dev/null &&
   tree_dirty=0
 fi
 
+protected_remote="origin"
+protected_upstream="origin/${branch}"
+if upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)"; then
+  protected_remote="${upstream%%/*}"
+  protected_upstream="$upstream"
+fi
+
 ahead_count=0
-if [[ "$protected" -eq 1 ]] && git rev-parse --verify --quiet "origin/${branch}" >/dev/null; then
-  ahead_count="$(git rev-list --count "origin/${branch}..HEAD")"
+if [[ "$protected" -eq 1 ]] && git rev-parse --verify --quiet "$protected_upstream" >/dev/null; then
+  ahead_count="$(git rev-list --count "${protected_upstream}..HEAD")"
 fi
 
 if [[ "$tree_dirty" -eq 0 ]]; then
@@ -59,8 +66,8 @@ if [[ "$tree_dirty" -eq 0 ]]; then
 Commit(s) are on \`${branch}\` and cannot be pushed (direct pushes are blocked). Move them onto a feature branch:
 
 1. Checkout a new lowercase conventional branch from current HEAD (e.g. \`feat/short-description\`).
-2. Reset local \`${branch}\` to \`origin/${branch}\`: \`git branch --force ${branch} origin/${branch}\` (after checkout; do not force-push).
-3. \`git push -u origin HEAD\` (no force push).
+2. Reset local \`${branch}\` to \`${protected_upstream}\`: \`git branch --force ${branch} ${protected_upstream}\` (after checkout; do not force-push).
+3. \`git push -u ${protected_remote} HEAD\` (no force push).
 4. Open a PR with \`gh pr create\` (title from the commit; body with Summary + Test plan).
 
 Then stop.
@@ -112,7 +119,7 @@ Working tree is dirty and tests passed. You are on \`${branch}\` (direct pushes 
 3. Create a lowercase single-line conventional commit (e.g. \`feat: ...\`, \`fix: ...\`).
 4. Do not use \`--no-verify\` or otherwise skip git hooks — \`prek\` must run on commit.
 5. If \`prek\` autofixes and aborts the commit, re-stage and commit again.
-6. \`git push -u origin HEAD\` (no force push).
+6. \`git push -u ${protected_remote} HEAD\` (no force push).
 7. Open a PR with \`gh pr create\` (title from the commit; body with Summary + Test plan).
 
 Then stop. If the tree is still dirty after a failed commit/push, the stop hook will nudge again.
