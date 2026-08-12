@@ -9,7 +9,16 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 
-import { useDisplayMode, useLayout, useLocale, useRequestSize, useTheme, useUserAgent } from "../src/host-context";
+import {
+  useDisplayMode,
+  useHostInfo,
+  useLayout,
+  useLocale,
+  useRequestSize,
+  useTheme,
+  useUserAgent,
+} from "../src/host-context";
+import type { Host } from "../src/host-context";
 import { WidgetContext } from "../src/widget-context";
 import type { WidgetContextValue } from "../src/widget-context";
 
@@ -31,6 +40,7 @@ interface HostContextHarness {
 interface HostContextSnapshot {
   displayMode: ReturnType<typeof useDisplayMode>[0];
   setDisplayMode: ReturnType<typeof useDisplayMode>[1];
+  hostInfo: ReturnType<typeof useHostInfo>;
   layout: ReturnType<typeof useLayout>;
   locale: ReturnType<typeof useLocale>;
   requestSize: ReturnType<typeof useRequestSize>;
@@ -61,7 +71,10 @@ function create(node: ReactNode): TestRenderer {
   };
 }
 
-function createHostContextHarness(initialContext: McpUiHostContext): HostContextHarness {
+function createHostContextHarness(
+  initialContext: McpUiHostContext,
+  hostVersion?: ReturnType<App["getHostVersion"]>,
+): HostContextHarness {
   let context = initialContext;
   const listeners = new Set<(params: AppEventMap["hostcontextchanged"]) => void>();
   const displayModeRequests: McpUiHostContext["displayMode"][] = [];
@@ -73,6 +86,9 @@ function createHostContextHarness(initialContext: McpUiHostContext): HostContext
     },
     getHostContext() {
       return context;
+    },
+    getHostVersion() {
+      return hostVersion;
     },
     removeEventListener(name, handler) {
       assert.equal(name, "hostcontextchanged");
@@ -103,6 +119,7 @@ function createHostContextHarness(initialContext: McpUiHostContext): HostContext
 
 function HostContextProbe({ rendered }: { rendered: (snapshot: HostContextSnapshot) => void }) {
   const [displayMode, setDisplayMode] = useDisplayMode();
+  const hostInfo = useHostInfo();
   const layout = useLayout();
   const locale = useLocale();
   const requestSize = useRequestSize();
@@ -111,6 +128,7 @@ function HostContextProbe({ rendered }: { rendered: (snapshot: HostContextSnapsh
   rendered({
     displayMode,
     setDisplayMode,
+    hostInfo,
     layout,
     locale,
     requestSize,
@@ -240,6 +258,7 @@ describe("host context hooks", () => {
 
       assert.ok(snapshot);
       assert.equal(snapshot.displayMode, "inline");
+      assert.deepEqual(snapshot.hostInfo, { name: undefined, version: undefined });
       assert.deepEqual(snapshot.layout, {
         maxHeight: undefined,
         safeArea: {
@@ -288,8 +307,53 @@ describe("host context hooks", () => {
     }
   });
 
+  it.each<[string, Host]>([
+    ["chatgpt", "chatgpt"],
+    ["Claude", "claude"],
+    ["Cursor", "cursor"],
+    ["MCP-UI Host", "goose"],
+    ["Le Chat", "mistral-vibe"],
+    ["alpic-playground", "alpic"],
+  ])("normalizes reported host name %j to slug %j", async (reported, slug) => {
+    const harness = createHostContextHarness({}, { name: reported, version: "1.2.3" });
+    let snapshot: HostContextSnapshot | undefined;
+    let renderer: TestRenderer | undefined;
+    try {
+      await act(async () => {
+        renderer = renderHostContextProbe(harness, (nextSnapshot) => {
+          snapshot = nextSnapshot;
+        });
+      });
+
+      assert.deepEqual(snapshot?.hostInfo, { name: slug, version: "1.2.3" });
+    } finally {
+      if (renderer !== undefined) {
+        await act(async () => renderer.unmount());
+      }
+    }
+  });
+
+  it("preserves an unrecognized reported host name", async () => {
+    const harness = createHostContextHarness({}, { name: "Some Future Host", version: "9.9.9" });
+    let snapshot: HostContextSnapshot | undefined;
+    let renderer: TestRenderer | undefined;
+    try {
+      await act(async () => {
+        renderer = renderHostContextProbe(harness, (nextSnapshot) => {
+          snapshot = nextSnapshot;
+        });
+      });
+
+      assert.deepEqual(snapshot?.hostInfo, { name: "Some Future Host", version: "9.9.9" });
+    } finally {
+      if (renderer !== undefined) {
+        await act(async () => renderer.unmount());
+      }
+    }
+  });
+
   it("requires a connected Widget context", () => {
-    const hooks = [useDisplayMode, useLayout, useLocale, useRequestSize, useTheme, useUserAgent];
+    const hooks = [useDisplayMode, useHostInfo, useLayout, useLocale, useRequestSize, useTheme, useUserAgent];
 
     function createProbe(hook: (typeof hooks)[number]) {
       return function Probe() {

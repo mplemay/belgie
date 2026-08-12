@@ -238,6 +238,7 @@ changes:
 | Hook | Returns |
 | --- | --- |
 | `useDisplayMode()` | `[displayMode, setDisplayMode]` for the current mode and a host request. |
+| `useHostInfo()` | The host's `name` and `version` from the `ui/initialize` handshake. |
 | `useLayout()` | Container `maxHeight` and safe-area insets. |
 | `useLocale()` | The host locale, defaulting to `en-US`. |
 | `useRequestSize()` | A callback that asks the host to resize the view. |
@@ -245,11 +246,16 @@ changes:
 | `useUserAgent()` | Normalized device type and input capabilities. |
 | `useWidget()` | The active MCP Apps `App` object. |
 
+`useHostInfo()` reads host identity after `Widget` connects. Known hosts are normalized to slugs
+(`claude`, `cursor`, `goose`, `chatgpt`, `mistral-vibe`, `alpic`); unrecognized names pass through
+as-is. Both fields are `undefined` if the host omitted them.
+
 ```tsx
-import { useDisplayMode, useLayout, useLocale, useTheme, useUserAgent } from "@belgie/mcp";
+import { useDisplayMode, useHostInfo, useLayout, useLocale, useTheme, useUserAgent } from "@belgie/mcp";
 
 function Environment() {
   const [displayMode, setDisplayMode] = useDisplayMode();
+  const { name, version } = useHostInfo();
   const { maxHeight, safeArea } = useLayout();
   const locale = useLocale();
   const theme = useTheme();
@@ -257,6 +263,7 @@ function Environment() {
 
   return (
     <section data-theme={theme} style={{ maxHeight, paddingTop: safeArea.insets.top }}>
+      <p>{name} {version}</p>
       <p>{locale}</p>
       <p>{userAgent.device.type}</p>
       <button onClick={() => void setDisplayMode("fullscreen")}>

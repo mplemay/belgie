@@ -154,13 +154,16 @@ startup, so the widget can type-check and build without contacting the MCP serve
 
 ## Host context and actions
 
-Inside a connected `<Widget>`, `@belgie/mcp` exposes hooks for host-provided state:
+Inside a connected `<Widget>`, `@belgie/mcp` exposes hooks for host-provided state.
+`useHostInfo()` reports the host name and version from the `ui/initialize` handshake
+(normalized to a slug when the host is recognized):
 
 ```tsx
-import { useDisplayMode, useLayout, useLocale, useTheme, useUserAgent } from "@belgie/mcp";
+import { useDisplayMode, useHostInfo, useLayout, useLocale, useTheme, useUserAgent } from "@belgie/mcp";
 
 function HostDetails() {
   const [displayMode, setDisplayMode] = useDisplayMode();
+  const { name, version } = useHostInfo();
   const { maxHeight, safeArea } = useLayout();
   const locale = useLocale();
   const theme = useTheme();
@@ -168,6 +171,7 @@ function HostDetails() {
 
   return (
     <section data-theme={theme} style={{ maxHeight, paddingTop: safeArea.insets.top }}>
+      <p>{name} {version}</p>
       <p>{locale}</p>
       <p>{userAgent.device.type}</p>
       <button onClick={() => void setDisplayMode("fullscreen")}>
