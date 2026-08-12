@@ -37,12 +37,15 @@ export { useToolResult, type ToolResultState, type ToolResultStatus } from "./us
 
 export {
   useDisplayMode,
+  useHostInfo,
   useLayout,
   useLocale,
   useRequestSize,
   useTheme,
   useUserAgent,
   type DeviceType,
+  type Host,
+  type HostInfo,
   type LayoutState,
   type SafeArea,
   type SafeAreaInsets,
