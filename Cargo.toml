@@ -3,6 +3,17 @@ name = "belgie"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = [
+  ".",
+  "crates/belgie-core",
+  "crates/belgie-node",
+  "crates/belgie-pool",
+  "crates/belgie-protocol",
+  "crates/belgie-worker",
+]
+resolver = "2"
+
 [lib]
 name = "_core"
 crate-type = ["cdylib", "rlib"]
@@ -14,6 +25,7 @@ extension-module = ["pyo3/extension-module"]
 [dependencies]
 async-trait = "0.1.91"
 aws-lc-rs = "1.17.3"
+belgie-core = { path = "crates/belgie-core" }
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 deno_ast = { version = "=0.53.3", features = ["transpiling"] }
 deno_cache_dir = { git = "https://github.com/denoland/deno.git", tag = "v2.9.5", features = ["sync"] }

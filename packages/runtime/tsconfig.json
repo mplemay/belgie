@@ -1,0 +1,41 @@
+{
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "declaration": true,
+    "esModuleInterop": true,
+    "exactOptionalPropertyTypes": true,
+    "isolatedModules": true,
+    "lib": [
+      "ESNext"
+    ],
+    "module": "ESNext",
+    "moduleDetection": "force",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "noUnusedLocals": true,
+    "paths": {
+      "@belgie/runtime": [
+        "./src/index.ts"
+      ]
+    },
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ESNext",
+    "types": [
+      "node",
+      "vitest/globals"
+    ],
+    "verbatimModuleSyntax": true
+  },
+  "exclude": [
+    "dist",
+    "native",
+    "node_modules"
+  ],
+  "include": [
+    "src",
+    "__tests__",
+    "*.config.ts"
+  ]
+}
