@@ -178,8 +178,11 @@ function HostDetails() {
 }
 ```
 
-Use `useModal()` or `requestModal()` for host modals, and `sendMessage`, `sendLog`, `openLink`, and
-`updateModelContext` for host actions. These actions require a connected widget host.
+Use `useModal()` or `requestModal()` for host modals, and `sendMessage`, `sendLog`, `openLink`,
+`updateModelContext`, and `requestSize` for host actions. `useRequestSize()` returns the same
+size-request callback for use inside a connected widget. These actions require a connected widget
+host. Default `autoResize` already reports document size; use `requestSize` for explicit
+dimensions, and read the granted height from `useLayout()`.
 
 ## Development and production boundaries
 

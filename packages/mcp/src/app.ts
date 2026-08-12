@@ -36,6 +36,10 @@ export function requestTeardown(...args: Parameters<App["requestTeardown"]>): Re
   return getActiveWidget().requestTeardown(...args);
 }
 
+export function requestSize(...args: Parameters<App["sendSizeChanged"]>): ReturnType<App["sendSizeChanged"]> {
+  return getActiveWidget().sendSizeChanged(...args);
+}
+
 export function requestModal(options: ModalOptions): void {
   getActiveWidget();
   openModal(options);

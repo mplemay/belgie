@@ -232,13 +232,15 @@ fallbacks, raw-result inspection, and host actions:
 
 ## Read host context
 
-Use these hooks inside a connected `<Widget>` child. They subscribe to host-context changes:
+Use these hooks inside a connected `<Widget>` child. Host-context readers subscribe to host-context
+changes:
 
 | Hook | Returns |
 | --- | --- |
 | `useDisplayMode()` | `[displayMode, setDisplayMode]` for the current mode and a host request. |
 | `useLayout()` | Container `maxHeight` and safe-area insets. |
 | `useLocale()` | The host locale, defaulting to `en-US`. |
+| `useRequestSize()` | A callback that asks the host to resize the view. |
 | `useTheme()` | The host theme, defaulting to `light`. |
 | `useUserAgent()` | Normalized device type and input capabilities. |
 | `useWidget()` | The active MCP Apps `App` object. |
@@ -281,9 +283,16 @@ async function notifyHost() {
 }
 ```
 
-Other helpers include `downloadFile`, `requestDisplayMode`, and `requestTeardown`. If code already
-holds a specific `App`, call that object's method directly instead of using a context-bound helper.
-All context-bound helpers require a connected widget and throw when called outside one.
+Other helpers include `downloadFile`, `requestDisplayMode`, `requestSize`, and `requestTeardown`.
+`requestSize({ width, height })` sends `ui/notifications/size-changed`. Omit a dimension to leave
+it unchanged. The promise resolves when the notification is sent, not when the host applies it;
+read the granted height from `useLayout()`. Default `Widget` `autoResize` already reports
+`document.body` size, so use `requestSize` / `useRequestSize` for explicit dimensions or when
+`autoResize` is `false`.
+
+If code already holds a specific `App`, call that object's method directly instead of using a
+context-bound helper. All context-bound helpers require a connected widget and throw when called
+outside one.
 
 ## Open a modal
 

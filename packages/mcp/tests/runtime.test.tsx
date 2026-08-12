@@ -17,6 +17,7 @@ import {
   mountWidget,
   openLink,
   requestDisplayMode,
+  requestSize,
   requestTeardown,
   sendLog,
   sendMessage,
@@ -1227,6 +1228,7 @@ test("forwards common app helpers through the active Widget", async () => {
       "downloadFile",
       "requestDisplayMode",
       "requestTeardown",
+      "sendSizeChanged",
     ].map((name) => [name, Promise.resolve({ method: name })]),
   );
   const methods = Object.fromEntries(
@@ -1275,6 +1277,7 @@ test("forwards common app helpers through the active Widget", async () => {
     };
     const displayMode = { mode: "fullscreen" };
     const teardown = {};
+    const size = { width: 800, height: 400 };
     const requestOptions = { timeout: 1000 };
 
     assert.equal(sendMessage(message, requestOptions), results.sendMessage);
@@ -1284,6 +1287,7 @@ test("forwards common app helpers through the active Widget", async () => {
     assert.equal(downloadFile(download, requestOptions), results.downloadFile);
     assert.equal(requestDisplayMode(displayMode, requestOptions), results.requestDisplayMode);
     assert.equal(requestTeardown(teardown), results.requestTeardown);
+    assert.equal(requestSize(size), results.sendSizeChanged);
 
     assert.deepEqual(calls, {
       downloadFile: { app, args: [download, requestOptions] },
@@ -1292,6 +1296,7 @@ test("forwards common app helpers through the active Widget", async () => {
       requestTeardown: { app, args: [teardown] },
       sendLog: { app, args: [log] },
       sendMessage: { app, args: [message, requestOptions] },
+      sendSizeChanged: { app, args: [size] },
       updateModelContext: { app, args: [modelContext, requestOptions] },
     });
 
