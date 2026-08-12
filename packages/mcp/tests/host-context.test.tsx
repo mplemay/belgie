@@ -9,7 +9,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 
-import { useDisplayMode, useLayout, useLocale, useTheme, useUserAgent } from "../src/host-context";
+import { useDisplayMode, useLayout, useLocale, useRequestSize, useTheme, useUserAgent } from "../src/host-context";
 import { WidgetContext } from "../src/widget-context";
 import type { WidgetContextValue } from "../src/widget-context";
 
@@ -24,6 +24,7 @@ interface HostContextHarness {
   app: App;
   displayModeRequests: McpUiHostContext["displayMode"][];
   listenerCount: () => number;
+  sizeRequests: Parameters<App["sendSizeChanged"]>[0][];
   update: (context: McpUiHostContext) => void;
 }
 
@@ -32,6 +33,7 @@ interface HostContextSnapshot {
   setDisplayMode: ReturnType<typeof useDisplayMode>[1];
   layout: ReturnType<typeof useLayout>;
   locale: ReturnType<typeof useLocale>;
+  requestSize: ReturnType<typeof useRequestSize>;
   theme: ReturnType<typeof useTheme>;
   userAgent: ReturnType<typeof useUserAgent>;
 }
@@ -63,6 +65,7 @@ function createHostContextHarness(initialContext: McpUiHostContext): HostContext
   let context = initialContext;
   const listeners = new Set<(params: AppEventMap["hostcontextchanged"]) => void>();
   const displayModeRequests: McpUiHostContext["displayMode"][] = [];
+  const sizeRequests: Parameters<App["sendSizeChanged"]>[0][] = [];
   const app = {
     addEventListener(name, handler) {
       assert.equal(name, "hostcontextchanged");
@@ -79,12 +82,16 @@ function createHostContextHarness(initialContext: McpUiHostContext): HostContext
       displayModeRequests.push(mode);
       return { mode: mode === "pip" ? "fullscreen" : mode };
     },
+    async sendSizeChanged(params) {
+      sizeRequests.push(params);
+    },
   } as App;
 
   return {
     app,
     displayModeRequests,
     listenerCount: () => listeners.size,
+    sizeRequests,
     update(nextContext) {
       context = { ...context, ...nextContext };
       for (const listener of [...listeners]) {
@@ -98,6 +105,7 @@ function HostContextProbe({ rendered }: { rendered: (snapshot: HostContextSnapsh
   const [displayMode, setDisplayMode] = useDisplayMode();
   const layout = useLayout();
   const locale = useLocale();
+  const requestSize = useRequestSize();
   const theme = useTheme();
   const userAgent = useUserAgent();
   rendered({
@@ -105,6 +113,7 @@ function HostContextProbe({ rendered }: { rendered: (snapshot: HostContextSnapsh
     setDisplayMode,
     layout,
     locale,
+    requestSize,
     theme,
     userAgent,
   });
@@ -204,6 +213,10 @@ describe("host context hooks", () => {
       const result = await snapshot.setDisplayMode("pip");
       assert.deepEqual(harness.displayModeRequests, ["pip"]);
       assert.equal(result.mode, "fullscreen");
+
+      await snapshot.requestSize({ width: 800, height: 400 });
+      await snapshot.requestSize({ height: 400 });
+      assert.deepEqual(harness.sizeRequests, [{ width: 800, height: 400 }, { height: 400 }]);
     } finally {
       if (renderer !== undefined) {
         await act(async () => renderer.unmount());
@@ -276,7 +289,7 @@ describe("host context hooks", () => {
   });
 
   it("requires a connected Widget context", () => {
-    const hooks = [useDisplayMode, useLayout, useLocale, useTheme, useUserAgent];
+    const hooks = [useDisplayMode, useLayout, useLocale, useRequestSize, useTheme, useUserAgent];
 
     function createProbe(hook: (typeof hooks)[number]) {
       return function Probe() {

@@ -6,6 +6,7 @@ import {
   openLink,
   requestDisplayMode,
   requestModal,
+  requestSize,
   requestTeardown,
   sendLog,
   sendMessage,
@@ -14,6 +15,7 @@ import {
   useLayout,
   useLocale,
   useModal,
+  useRequestSize,
   useTheme,
   useToolResult,
   useUserAgent,
@@ -136,6 +138,7 @@ export function TypeFixture() {
   const [hostDisplayMode, setHostDisplayMode] = useDisplayMode();
   const layout: LayoutState = useLayout();
   const locale: string = useLocale();
+  const requestViewSize = useRequestSize();
   const theme: "light" | "dark" = useTheme();
   const userAgent: UserAgent = useUserAgent();
   const modal = useModal();
@@ -182,6 +185,9 @@ export function TypeFixture() {
   const downloadResult: ReturnType<App["downloadFile"]> = downloadFile(download, requestOptions);
   const displayModeResult: ReturnType<App["requestDisplayMode"]> = requestDisplayMode(displayMode, requestOptions);
   const teardownResult: ReturnType<App["requestTeardown"]> = requestTeardown();
+  const size = { width: 800, height: 400 };
+  const sizeResult: ReturnType<App["sendSizeChanged"]> = requestSize(size);
+  const hookSizeResult: ReturnType<App["sendSizeChanged"]> = requestViewSize(size);
 
   void empty();
   void empty(undefined, app);
@@ -224,6 +230,8 @@ export function TypeFixture() {
   void requestDisplayMode(displayMode, app);
   // @ts-expect-error context-bound helpers do not accept an explicit app
   void requestTeardown(undefined, app);
+  // @ts-expect-error context-bound helpers do not accept an explicit app
+  void requestSize(size, app);
 
   void genericCallersAreAbsent;
   void combinedUserHookIsAbsent;
@@ -242,6 +250,8 @@ export function TypeFixture() {
   void downloadResult;
   void displayModeResult;
   void teardownResult;
+  void sizeResult;
+  void hookSizeResult;
   void requiredCall;
   void rawCall;
   void requiredResultState;

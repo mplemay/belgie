@@ -106,6 +106,11 @@ export function useLayout(): LayoutState {
   return useMemo(() => ({ maxHeight, safeArea }), [maxHeight, safeArea]);
 }
 
+export function useRequestSize() {
+  const { app } = useConnectedWidgetContext("useRequestSize");
+  return useCallback((params: Parameters<App["sendSizeChanged"]>[0]) => app.sendSizeChanged(params), [app]);
+}
+
 export function useLocale(): string {
   const { app } = useConnectedWidgetContext("useLocale");
   const locale = useHostContextValue(app, "locale") ?? DEFAULT_LOCALE;
