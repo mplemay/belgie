@@ -158,13 +158,18 @@ jobs:
 
           replace_version_in_named_block(
               "Cargo.toml",
-              r'(?m)^\[package\]\nname = "belgie"$',
-              "belgie",
+              r'(?m)^\[workspace\.package\]$',
+              "workspace.package",
           )
           replace_version_in_named_block(
               "Cargo.lock",
               r'(?ms)^\[\[package\]\]\nname = "belgie"$',
               "belgie",
+          )
+          replace_version_in_named_block(
+              "Cargo.lock",
+              r'(?ms)^\[\[package\]\]\nname = "belgie-py"$',
+              "belgie-py",
           )
           replace_version_in_named_block(
               "uv.lock",
@@ -179,18 +184,17 @@ jobs:
 
           actual = {
               "pyproject.toml": pyproject["project"]["version"],
-              "Cargo.toml": cargo["package"]["version"],
+              "Cargo.toml": cargo["workspace"]["package"]["version"],
           }
           for package in cargo_lock["package"]:
-              if package["name"] == "belgie":
-                  actual["Cargo.lock"] = package["version"]
-                  break
+              if package["name"] in {"belgie", "belgie-py"}:
+                  actual[f"Cargo.lock:{package['name']}"] = package["version"]
           for package in uv_lock["package"]:
               if package["name"] == "belgie":
                   actual["uv.lock"] = package["version"]
                   break
 
-          missing = {"Cargo.lock", "uv.lock"} - actual.keys()
+          missing = {"Cargo.lock:belgie", "Cargo.lock:belgie-py", "uv.lock"} - actual.keys()
           if missing:
               raise SystemExit(f"missing belgie package entries: {sorted(missing)}")
 
@@ -300,13 +304,18 @@ jobs:
 
           replace_version_in_named_block(
               "Cargo.toml",
-              r'(?m)^\[package\]\nname = "belgie"$',
-              "belgie",
+              r'(?m)^\[workspace\.package\]$',
+              "workspace.package",
           )
           replace_version_in_named_block(
               "Cargo.lock",
               r'(?ms)^\[\[package\]\]\nname = "belgie"$',
               "belgie",
+          )
+          replace_version_in_named_block(
+              "Cargo.lock",
+              r'(?ms)^\[\[package\]\]\nname = "belgie-py"$',
+              "belgie-py",
           )
           replace_version_in_named_block(
               "uv.lock",
@@ -321,18 +330,17 @@ jobs:
 
           actual = {
               "pyproject.toml": pyproject["project"]["version"],
-              "Cargo.toml": cargo["package"]["version"],
+              "Cargo.toml": cargo["workspace"]["package"]["version"],
           }
           for package in cargo_lock["package"]:
-              if package["name"] == "belgie":
-                  actual["Cargo.lock"] = package["version"]
-                  break
+              if package["name"] in {"belgie", "belgie-py"}:
+                  actual[f"Cargo.lock:{package['name']}"] = package["version"]
           for package in uv_lock["package"]:
               if package["name"] == "belgie":
                   actual["uv.lock"] = package["version"]
                   break
 
-          missing = {"Cargo.lock", "uv.lock"} - actual.keys()
+          missing = {"Cargo.lock:belgie", "Cargo.lock:belgie-py", "uv.lock"} - actual.keys()
           if missing:
               raise SystemExit(f"missing belgie package entries: {sorted(missing)}")
 

@@ -426,8 +426,6 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "pkcs8 0.11.0-rc.11",
- "pyo3",
- "pyo3-async-runtimes",
  "rowan",
  "rustls",
  "serde",
@@ -437,6 +435,26 @@ dependencies = [
  "tokio",
  "url",
  "yaml_parser",
+]
+
+[[package]]
+name = "belgie-py"
+version = "0.1.0"
+dependencies = [
+ "belgie",
+ "deno_cache_dir",
+ "deno_config",
+ "deno_core",
+ "deno_lib",
+ "deno_npm_installer",
+ "deno_resolver",
+ "deno_runtime",
+ "pyo3",
+ "pyo3-async-runtimes",
+ "serde_json",
+ "sys_traits",
+ "tokio",
+ "url",
 ]
 
 [[package]]

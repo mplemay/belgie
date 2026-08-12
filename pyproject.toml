@@ -64,6 +64,7 @@ requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
 
 [tool.maturin]
+manifest-path = "crates/belgie-py/Cargo.toml"
 module-name = "belgie._core"
 python-packages = ["belgie"]
 python-source = "src"
@@ -76,7 +77,7 @@ oxfmt = "npm:oxfmt@^0.61.0"
 oxlint-tsgolint = "npm:oxlint-tsgolint@^7.0.2001"
 
 [tool.uv]
-cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
+cache-keys = [{ file = "pyproject.toml" }, { file = "crates/**/*.rs" }, { file = "crates/**/Cargo.toml" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
 exclude-newer = "7 days"
 exclude-newer-package = { pydantic-ai-slim = false, pydantic-graph = false, pydantic-evals = false, mcp = false, mcp-types = false }
 
