@@ -233,12 +233,17 @@ fallbacks, raw-result inspection, and host actions:
 ## Read host context
 
 Use these hooks inside a connected `<Widget>` child. Host-context readers subscribe to host-context
-changes:
+changes. `useIsWidget()` is the React source of truth for shared UI that also runs outside a widget:
+it is `true` only for descendants of a connected `<Widget>`. Split host-only hooks into a child so
+they stay unconditional. `isWidget()` is the non-React companion and follows the same active-widget
+flag used by host actions; it can become `true` after connection slightly before widget children
+render.
 
 | Hook | Returns |
 | --- | --- |
 | `useDisplayMode()` | `[displayMode, setDisplayMode]` for the current mode and a host request. |
 | `useHostInfo()` | The host's `name` and `version` from the `ui/initialize` handshake. |
+| `useIsWidget()` | `true` when the component is a descendant of a connected `<Widget>`. |
 | `useLayout()` | Container `maxHeight` and safe-area insets. |
 | `useLocale()` | The host locale, defaulting to `en-US`. |
 | `useRequestSize()` | A callback that asks the host to resize the view. |
@@ -251,7 +256,11 @@ changes:
 as-is. Both fields are `undefined` if the host omitted them.
 
 ```tsx
-import { useDisplayMode, useHostInfo, useLayout, useLocale, useTheme, useUserAgent } from "@belgie/mcp";
+import { useDisplayMode, useHostInfo, useIsWidget, useLayout, useLocale, useTheme, useUserAgent } from "@belgie/mcp";
+
+function SharedChrome() {
+  return useIsWidget() ? <Environment /> : <p>Running outside an MCP Apps host.</p>;
+}
 
 function Environment() {
   const [displayMode, setDisplayMode] = useDisplayMode();

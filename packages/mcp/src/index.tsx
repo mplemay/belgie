@@ -6,7 +6,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 
 import { ModalProvider } from "./modal-provider";
-import { WidgetContext, activateWidget, deactivateWidget, useWidget } from "./widget-context";
+import { WidgetContext, activateWidget, deactivateWidget } from "./widget-context";
 import type { WidgetToolLifecycle } from "./widget-context";
 
 export {
@@ -54,7 +54,7 @@ export {
 
 export { useModal } from "./use-modal";
 
-export { useWidget };
+export { isWidget, useIsWidget, useWidget } from "./widget-context";
 
 export type WidgetMetadata = {
   name: string;

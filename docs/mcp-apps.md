@@ -155,8 +155,9 @@ startup, so the widget can type-check and build without contacting the MCP serve
 ## Host context and actions
 
 Inside a connected `<Widget>`, `@belgie/mcp` exposes hooks for host-provided state.
-`useHostInfo()` reports the host name and version from the `ui/initialize` handshake
-(normalized to a slug when the host is recognized):
+`useIsWidget()` is `true` for descendants of that connected widget, so shared UI can branch
+between an MCP Apps host and a plain web page. `useHostInfo()` reports the host name and version
+from the `ui/initialize` handshake (normalized to a slug when the host is recognized):
 
 ```tsx
 import { useDisplayMode, useHostInfo, useLayout, useLocale, useTheme, useUserAgent } from "@belgie/mcp";

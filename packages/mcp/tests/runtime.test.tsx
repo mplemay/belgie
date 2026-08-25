@@ -7,6 +7,7 @@ import { StrictMode, act, createElement } from "react";
 import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import { ZodError } from "zod";
 
 import {
@@ -14,6 +15,7 @@ import {
   McpToolError,
   Widget,
   downloadFile,
+  isWidget,
   mountWidget,
   openLink,
   requestDisplayMode,
@@ -22,6 +24,7 @@ import {
   sendLog,
   sendMessage,
   updateModelContext,
+  useIsWidget,
   useToolResult,
   useWidget,
 } from "../src/index.tsx";
@@ -1157,6 +1160,40 @@ test("requires useToolResult to run within Widget context", async () => {
       );
     });
   }, /useToolResult must be used within a connected <Widget>/u);
+});
+
+test("reports widget presence with useIsWidget and isWidget", async () => {
+  function Outside() {
+    return createElement("span", null, String(useIsWidget()));
+  }
+
+  assert.equal(renderToString(createElement(Outside)), "<span>false</span>");
+  assert.equal(isWidget(), false);
+
+  let renderer;
+  let inside = false;
+  function Probe() {
+    inside = useIsWidget();
+    return createElement("span", null, "connected");
+  }
+  const restore = stubApp({
+    connect: async () => {},
+  });
+  try {
+    await act(async () => {
+      renderer = create(
+        createElement(Widget, { metadata: { name: "Presence", version: "1.0.0" } }, createElement(Probe)),
+      );
+    });
+    assert.equal(inside, true);
+    assert.equal(isWidget(), true);
+  } finally {
+    if (renderer !== undefined) {
+      await act(async () => renderer.unmount());
+    }
+    restore();
+  }
+  assert.equal(isWidget(), false);
 });
 
 test("uses the active Widget after connection and clears it on teardown", async () => {

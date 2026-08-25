@@ -41,6 +41,10 @@ export function getActiveWidget(): App {
   return activeWidget;
 }
 
+export function isWidget(): boolean {
+  return activeWidget !== null;
+}
+
 export function useWidgetContext(): WidgetContextValue | null {
   return useContext(WidgetContext);
 }
@@ -51,6 +55,10 @@ export function useConnectedWidgetContext(name: string): WidgetContextValue {
     throw new Error(`${name} must be used within a connected <Widget>`);
   }
   return context;
+}
+
+export function useIsWidget(): boolean {
+  return useWidgetContext() != null;
 }
 
 export function useWidget(): App {
