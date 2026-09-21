@@ -3,6 +3,7 @@ import {
   McpToolError,
   closeModal,
   downloadFile,
+  isWidget,
   openLink,
   requestDisplayMode,
   requestModal,
@@ -13,6 +14,7 @@ import {
   updateModelContext,
   useDisplayMode,
   useHostInfo,
+  useIsWidget,
   useLayout,
   useLocale,
   useModal,
@@ -138,6 +140,8 @@ async function narrowResult(): Promise<number> {
 }
 
 export function TypeFixture() {
+  const inWidget: boolean = useIsWidget();
+  const widgetPresent: boolean = isWidget();
   const [hostDisplayMode, setHostDisplayMode] = useDisplayMode();
   const hostInfo: HostInfo = useHostInfo();
   const hostName: HostInfo["name"] = hostInfo.name;
@@ -196,6 +200,8 @@ export function TypeFixture() {
   const sizeResult: ReturnType<App["sendSizeChanged"]> = requestSize(size);
   const hookSizeResult: ReturnType<App["sendSizeChanged"]> = requestViewSize(size);
 
+  void inWidget;
+  void widgetPresent;
   void empty();
   void empty(undefined, app);
   void optional();

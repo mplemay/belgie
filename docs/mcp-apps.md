@@ -154,8 +154,10 @@ startup, so the widget can type-check and build without contacting the MCP serve
 
 ## Host context and actions
 
-Inside a connected `<Widget>`, `@belgie/mcp` exposes hooks for host-provided state.
-`useHostInfo()` reports the host name and version from the `ui/initialize` handshake
+`isWidget()` is `true` when the page is guest UI in an MCP Apps host (opaque `"null"` origin or
+ChatGPT's Skybridge/`window.openai` overlay) and `false` on a normal website. Use it in `if`
+statements to share one UI between web and widget; host hooks still require a connected `<Widget>`
+child. `useHostInfo()` reports the host name and version from the `ui/initialize` handshake
 (normalized to a slug when the host is recognized):
 
 ```tsx

@@ -230,6 +230,44 @@ fallbacks, raw-result inspection, and host actions:
 --8<-- "examples/ui/mcp/src/mcp_app/views/widgets/get-time/widget.tsx"
 ```
 
+## Share UI with a web app
+
+`isWidget()` reports whether this page is guest UI inside an MCP Apps host, including ChatGPT's
+Skybridge sandbox. It is `true` when `location.origin` is the opaque sandbox origin `"null"`, or
+when the ChatGPT Apps SDK overlay (`window.openai`) is present. It is `false` on a normal website,
+including the same React tree opened in a browser tab.
+
+Use it in `if` statements so one codebase can serve both a website and a widget. It does not mean
+the Python MCP server is reachable, and helpers such as `sendMessage` still require a connected
+`<Widget>`.
+
+```tsx
+import { Widget, isWidget, sendMessage } from "@belgie/mcp";
+
+function TimeView() {
+  if (isWidget()) {
+    void sendMessage({ role: "user", content: [{ type: "text", text: "Refresh" }] });
+  }
+  return <main>Ready</main>;
+}
+
+export default function App() {
+  const view = <TimeView />;
+  if (!isWidget()) {
+    return view;
+  }
+  return (
+    <Widget metadata={{ name: "Get Time", version: "1.0.0" }}>
+      {view}
+    </Widget>
+  );
+}
+```
+
+`useIsWidget()` returns the same boolean for call sites that prefer a hook name. Host-context hooks
+(`useTheme`, `useToolResult`) cannot be called inside `if`; mount those in a child that only
+renders on the widget branch.
+
 ## Read host context
 
 Use these hooks inside a connected `<Widget>` child. Host-context readers subscribe to host-context

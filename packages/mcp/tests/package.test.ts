@@ -25,6 +25,8 @@ test("publishes the expected ESM export map and declarations", async () => {
   assert.equal(typeof mcp.Widget, "function");
   assert.equal(typeof mcp.useDisplayMode, "function");
   assert.equal(typeof mcp.useHostInfo, "function");
+  assert.equal(typeof mcp.useIsWidget, "function");
+  assert.equal(typeof mcp.isWidget, "function");
   assert.equal(typeof mcp.useLayout, "function");
   assert.equal(typeof mcp.useLocale, "function");
   assert.equal(typeof mcp.useRequestSize, "function");
