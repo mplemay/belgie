@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use deno_cache_dir::file_fetcher::CacheSetting;
 use deno_core::error::AnyError;
 use deno_error::JsErrorBox;
 use deno_graph::source::{
@@ -237,13 +238,13 @@ async fn build_module_graph_inner(
                 npm_resolver: Some(npm_graph_resolver),
                 resolver: Some(&graph_resolver),
                 unstable_bytes_imports: context.enable_raw_imports(),
-                unstable_text_imports: true,
                 unstable_css_imports: context.enable_raw_imports(),
-                // Match Deno 2.9.5: leave disabled. deno_graph only permits
+                // Match Deno 2.9.7: leave disabled. deno_graph only permits
                 // yaml/toml/jsonc/json5 attributes; an embedder resolver must
                 // redirect them. Do not tie this to enable_raw_imports until
                 // that wiring lands.
                 unstable_config_imports: false,
+                prefer_cached_jsr_versions: matches!(context.cache_setting(), CacheSetting::Only),
                 file_system: resolver_factory.workspace_factory().sys(),
                 locker: locker.as_mut().map(|locker| locker as _),
                 ..Default::default()

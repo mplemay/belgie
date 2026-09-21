@@ -234,7 +234,7 @@ async fn resolve_jsr_specifier(
     let jsr_version_resolver = context.resolver_factory().jsr_version_resolver()?;
     let version_resolver = jsr_version_resolver.get_for_package(&req.name, &package_info);
     let compatible = version_resolver
-        .resolve_version(&req, std::iter::empty())?
+        .resolve_version(&req, std::iter::empty(), &Default::default())?
         .version
         .clone();
     let target_version = best_jsr_version(&package_info, &version_resolver, &compatible, !latest);
