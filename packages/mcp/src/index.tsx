@@ -54,7 +54,8 @@ export {
 
 export { useModal } from "./use-modal";
 
-export { isWidget, useIsWidget, useWidget } from "./widget-context";
+export { isWidget, useIsWidget } from "./is-widget";
+export { useWidget } from "./widget-context";
 
 export type WidgetMetadata = {
   name: string;

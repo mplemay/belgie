@@ -230,20 +230,53 @@ fallbacks, raw-result inspection, and host actions:
 --8<-- "examples/ui/mcp/src/mcp_app/views/widgets/get-time/widget.tsx"
 ```
 
+## Share UI with a web app
+
+`isWidget()` reports whether this page is guest UI inside an MCP Apps host, including ChatGPT's
+Skybridge sandbox. It is `true` when `location.origin` is the opaque sandbox origin `"null"`, or
+when the ChatGPT Apps SDK overlay (`window.openai`) is present. It is `false` on a normal website,
+including the same React tree opened in a browser tab.
+
+Use it in `if` statements so one codebase can serve both a website and a widget. It does not mean
+the Python MCP server is reachable, and helpers such as `sendMessage` still require a connected
+`<Widget>`.
+
+```tsx
+import { Widget, isWidget, sendMessage } from "@belgie/mcp";
+
+function TimeView() {
+  if (isWidget()) {
+    void sendMessage({ role: "user", content: [{ type: "text", text: "Refresh" }] });
+  }
+  return <main>Ready</main>;
+}
+
+export default function App() {
+  const view = <TimeView />;
+  if (!isWidget()) {
+    return view;
+  }
+  return (
+    <Widget metadata={{ name: "Get Time", version: "1.0.0" }}>
+      {view}
+    </Widget>
+  );
+}
+```
+
+`useIsWidget()` returns the same boolean for call sites that prefer a hook name. Host-context hooks
+(`useTheme`, `useToolResult`) cannot be called inside `if`; mount those in a child that only
+renders on the widget branch.
+
 ## Read host context
 
 Use these hooks inside a connected `<Widget>` child. Host-context readers subscribe to host-context
-changes. `useIsWidget()` is the React source of truth for shared UI that also runs outside a widget:
-it is `true` only for descendants of a connected `<Widget>`. Split host-only hooks into a child so
-they stay unconditional. `isWidget()` is the non-React companion and follows the same active-widget
-flag used by host actions; it can become `true` after connection slightly before widget children
-render.
+changes:
 
 | Hook | Returns |
 | --- | --- |
 | `useDisplayMode()` | `[displayMode, setDisplayMode]` for the current mode and a host request. |
 | `useHostInfo()` | The host's `name` and `version` from the `ui/initialize` handshake. |
-| `useIsWidget()` | `true` when the component is a descendant of a connected `<Widget>`. |
 | `useLayout()` | Container `maxHeight` and safe-area insets. |
 | `useLocale()` | The host locale, defaulting to `en-US`. |
 | `useRequestSize()` | A callback that asks the host to resize the view. |
@@ -256,11 +289,7 @@ render.
 as-is. Both fields are `undefined` if the host omitted them.
 
 ```tsx
-import { useDisplayMode, useHostInfo, useIsWidget, useLayout, useLocale, useTheme, useUserAgent } from "@belgie/mcp";
-
-function SharedChrome() {
-  return useIsWidget() ? <Environment /> : <p>Running outside an MCP Apps host.</p>;
-}
+import { useDisplayMode, useHostInfo, useLayout, useLocale, useTheme, useUserAgent } from "@belgie/mcp";
 
 function Environment() {
   const [displayMode, setDisplayMode] = useDisplayMode();
