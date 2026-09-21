@@ -39,13 +39,13 @@ type Assert<Value extends true> = Value;
 
 export type AnyIsRaw = Assert<Equal<AnyOutputOutput, RawToolResult>>;
 export type AudioIsRaw = Assert<Equal<AudioHelperOutput, RawToolResult>>;
+export type ContentIsRaw = Assert<Equal<ContentBlocksOutput, RawToolResult>>;
 export type DirectResultIsRaw = Assert<Equal<DirectResultOutput, RawToolResult>>;
 export type DisabledIsRaw = Assert<Equal<DisabledOutputOutput, RawToolResult>>;
 export type ImageIsRaw = Assert<Equal<ImageHelperOutput, RawToolResult>>;
 
 declare const input: CommonInputsInput;
 declare const output: CommonInputsOutput;
-declare const content: ContentBlocksOutput;
 declare const annotatedPoint: AnnotatedClassOutputOutput;
 declare const dataclassPoint: DataclassOutputOutput;
 declare const dictionary: DictionaryOutputOutput;
@@ -80,35 +80,7 @@ const dataclassCoordinate: number = dataclassPoint.y;
 const dictionaryValue: number | undefined = dictionary.key;
 const genericValue: string | undefined = generic.result[0];
 const primitiveValue: string = primitive.result;
-const typedDictionaryValue: number = typedDictionary.count;
-
-function inspectContentBlock(
-  block: ContentBlocksOutput["result"][number],
-): string {
-  const metadata: Record<string, unknown> | null | undefined = block._meta;
-  const priority: number | null | undefined = block.annotations?.priority;
-  void metadata;
-  void priority;
-
-  switch (block.type) {
-    case "text":
-      return block.text;
-    case "image":
-    case "audio":
-      return `${block.mimeType}:${block.data}`;
-    case "resource_link": {
-      const iconSource: string | undefined = block.icons?.[0]?.src;
-      return iconSource ?? block.uri;
-    }
-    case "resource":
-      if ("text" in block.resource) {
-        return `${block.resource.uri}:${block.resource.text}`;
-      }
-      return `${block.resource.uri}:${block.resource.blob}`;
-    default:
-      return "unknown";
-  }
-}
+const typedDictionaryValue: number | undefined = typedDictionary.count;
 
 const rawCall: Promise<ToolCallResult<RawToolResult>> = imageHelper();
 
@@ -161,5 +133,4 @@ void dictionaryValue;
 void genericValue;
 void primitiveValue;
 void typedDictionaryValue;
-void inspectContentBlock(content.result[0]);
 void rawCall;

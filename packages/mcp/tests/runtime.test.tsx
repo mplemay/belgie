@@ -26,7 +26,7 @@ import {
   useWidget,
 } from "../src/index.tsx";
 import { createGeneratedRawTool, createGeneratedTool } from "../src/internal.ts";
-import pythonMcpV2Tools from "./fixtures/python-mcp-v2-tools.json";
+import contentBlocksOutputSchema from "./fixtures/content-blocks-output-schema.json";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -60,16 +60,7 @@ const outputSchema = {
   type: "object",
 };
 const getValue = createGeneratedTool("get-value", outputSchema);
-
-let contentBlocksToolPromise;
-async function contentBlocksTool() {
-  contentBlocksToolPromise ??= (async () => {
-    const contentBlocksSchema = pythonMcpV2Tools.find((tool) => tool.name === "content-blocks")?.outputSchema;
-    assert.ok(contentBlocksSchema);
-    return createGeneratedTool("content-blocks", contentBlocksSchema);
-  })();
-  return contentBlocksToolPromise;
-}
+const getContentBlocks = createGeneratedTool("content-blocks", contentBlocksOutputSchema);
 
 function stubApp({ connect = async () => {}, close = async () => {}, call, methods = {} }) {
   const listeners = new WeakMap();
@@ -164,8 +155,7 @@ test("omits arguments for an omitted optional input", async () => {
   assert.deepEqual(request, { name: "get-empty" });
 });
 
-test("parses nested MCP content blocks from the Python SDK schema", async () => {
-  const getContentBlocks = await contentBlocksTool();
+test("parses nested MCP content blocks from a ContentBlock union schema", async () => {
   const structuredContent = {
     result: [
       {
@@ -228,7 +218,6 @@ test("parses nested MCP content blocks from the Python SDK schema", async () => 
 });
 
 test("rejects malformed nested MCP content blocks", async () => {
-  const getContentBlocks = await contentBlocksTool();
   const app = {
     async callServerTool() {
       return {
