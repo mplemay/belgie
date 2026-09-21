@@ -206,6 +206,7 @@ pub struct EmbedContext {
     module_read_checker: ModuleReadChecker,
     graph_loader: Mutex<DenoGraphLoader<NullBlobStore, EmbedSys, EmbedHttpClient>>,
     install_graph_roots: Vec<ModuleSpecifier>,
+    cache_setting: CacheSetting,
     allow_json_imports: AllowJsonImports,
     enable_raw_imports: bool,
     frozen_lockfile: bool,
@@ -448,6 +449,7 @@ impl EmbedContext {
             module_read_checker,
             graph_loader: Mutex::new(graph_loader),
             install_graph_roots: options.install_graph_roots,
+            cache_setting: options.cache_setting,
             allow_json_imports: options.allow_json_imports,
             enable_raw_imports: options.enable_raw_imports,
             frozen_lockfile: options.frozen_lockfile.unwrap_or(false),
@@ -489,6 +491,10 @@ impl EmbedContext {
 
     pub fn allow_json_imports(&self) -> AllowJsonImports {
         self.allow_json_imports
+    }
+
+    pub fn cache_setting(&self) -> &CacheSetting {
+        &self.cache_setting
     }
 
     pub fn enable_raw_imports(&self) -> bool {
