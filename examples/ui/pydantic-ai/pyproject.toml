@@ -33,12 +33,12 @@ belgie = { path = "../../../", editable = true }
 module = true
 
 [tool.belgie.dependencies]
-"@types/node" = "npm:@types/node@^26.1.2"
-"@types/react" = "npm:@types/react@^19.2.18"
-"@types/react-dom" = "npm:@types/react-dom@^19.2.4"
-"@vitejs/plugin-react" = "npm:@vitejs/plugin-react@^6.0.5"
-react = "npm:react@^19.2.8"
-"react-dom" = "npm:react-dom@^19.2.8"
-"react-dom/client" = "npm:react-dom@^19.2.8"
+"@types/node" = "npm:@types/node@^26.6.2"
+"@types/react" = "npm:@types/react@^19.3.0"
+"@types/react-dom" = "npm:@types/react-dom@^19.3.0"
+"@vitejs/plugin-react" = "npm:@vitejs/plugin-react@^6.1.1"
+react = "npm:react@^19.3.0"
+"react-dom" = "npm:react-dom@^19.3.0"
+"react-dom/client" = "npm:react-dom@^19.3.0"
 typescript = "npm:typescript@^7.0.2"
-vite = "npm:vite@8.2.0"
+vite = "npm:vite@8.3.0"
