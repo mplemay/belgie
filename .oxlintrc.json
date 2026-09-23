@@ -98,7 +98,10 @@
     "eslint/no-unused-expressions": "off",
     "eslint/no-use-before-define": "off",
     "eslint/no-void": "off",
-    "eslint/one-var": "off",
+    "eslint/one-var": [
+      "error",
+      "never"
+    ],
     "eslint/prefer-destructuring": "off",
     "eslint/prefer-named-capture-group": "off",
     "eslint/preserve-caught-error": "off",
@@ -141,6 +144,7 @@
     "react/no-multi-comp": "off",
     "react/no-unstable-nested-components": "off",
     "react/only-export-components": "off",
+    "react/preserve-manual-memoization": "off",
     "react/react-in-jsx-scope": "off",
     "react/refs": "off",
     "react/set-state-in-effect": "off",
