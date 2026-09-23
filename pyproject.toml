@@ -72,9 +72,9 @@ exclude = ["**/__tests__/**"]
 features = ["extension-module"]
 
 [tool.belgie.dependencies]
-oxlint = "npm:oxlint@^1.76.0"
-oxfmt = "npm:oxfmt@^0.61.0"
-oxlint-tsgolint = "npm:oxlint-tsgolint@^7.0.2001"
+oxlint = "npm:oxlint@^1.85.0"
+oxfmt = "npm:oxfmt@^0.70.0"
+oxlint-tsgolint = "npm:oxlint-tsgolint@^7.0.2002"
 
 [tool.uv]
 cache-keys = [{ file = "pyproject.toml" }, { file = "crates/**/*.rs" }, { file = "crates/**/Cargo.toml" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]

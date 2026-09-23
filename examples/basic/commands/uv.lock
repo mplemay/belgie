@@ -16,6 +16,7 @@ source = { editable = "../../../" }
 
 [package.metadata]
 requires-dist = [
+    { name = "anyio", marker = "extra == 'pydantic-ai'", specifier = ">=4" },
     { name = "langchain", marker = "extra == 'langchain'", specifier = ">=1,<2" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2.0.0rc1" },
     { name = "mcp-types", marker = "extra == 'mcp'", specifier = ">=2.0.0rc1" },
@@ -41,11 +42,17 @@ dev = [
     { name = "rtoml", specifier = ">=0.13,<1" },
     { name = "ruff", specifier = ">=0.16.0" },
     { name = "rumdl", specifier = ">=0.2.43" },
+    { name = "shellcheck-py", specifier = ">=0.11.0.1" },
+    { name = "shfmt-py", specifier = ">=4.0.0" },
     { name = "tomlkit", specifier = ">=0.13,<1" },
     { name = "ty", specifier = ">=0.0.63" },
     { name = "typer", specifier = ">=0.20,<1" },
     { name = "uvloop", marker = "sys_platform != 'win32'", specifier = ">=0.22.1" },
     { name = "zizmor", specifier = ">=1.25.2" },
+]
+docs = [
+    { name = "mkdocs", specifier = ">=1.6.1" },
+    { name = "mkdocs-material", specifier = ">=9.7.0" },
 ]
 
 [[package]]
