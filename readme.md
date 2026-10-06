@@ -1,4 +1,4 @@
-# Belgie: Run JavaScript and TypeScript from Python
+# Belgie: Build MCP App UIs for Claude and ChatGPT from Python
 
 [![CI](https://github.com/mplemay/belgie/actions/workflows/test.yml/badge.svg?event=push)](https://github.com/mplemay/belgie/actions/workflows/test.yml?query=branch%3Amain)
 [![PyPI](https://img.shields.io/pypi/v/belgie.svg)](https://pypi.python.org/pypi/belgie)
@@ -10,35 +10,45 @@
 
 ---
 
-Belgie gives AI agents and Python applications a permissioned way to run JavaScript, TypeScript, and
-TSX. Use the embedded Deno runtime to add sandbox tools to Pydantic AI and LangChain, build React
-MCP Apps, or execute scripts directly from Python.
+Belgie lets a Python MCP server ship interactive React UIs that render inside AI hosts. Write the
+tool in Python and the view in React. Belgie runs Vite with hot reload during development, bundles
+each view into a single self-contained HTML resource for production, generates typed tool callers
+from your tool schemas, and gives components the host's theme, layout, and display mode.
 
-- **AI agents:** Add sandboxed `run_typescript` for Pydantic AI or `run_code` for LangChain.
-- **Inline React widgets:** Return self-contained HTML from either agent integration with `render_widget`
-  (`@belgie/vite`).
-- **MCP Apps:** Connect Python MCP tools to React widgets and typed tool callers.
-- **Direct runtime:** Run scripts, resolve JavaScript dependencies, and invoke package binaries from Python.
-- **Embedded runtime:** Deno is bundled, so the Python runtime does not require Node.js.
+Views follow the open [MCP Apps](https://github.com/modelcontextprotocol/ext-apps) standard, so one
+widget renders in Claude, in ChatGPT apps and plugins, and in other MCP Apps hosts such as VS Code
+and Goose.
+
+- **Python tools, React views:** Attach a `widget.tsx` to an MCP tool with one decorator argument.
+- **One UI across hosts:** Target MCP Apps once; use `useHostInfo()` and `isWidget()` when a view
+  needs to adapt to Claude, ChatGPT, or a normal web page.
+- **Vite without a Node toolchain:** Declare JavaScript dependencies in `pyproject.toml`. Belgie's
+  embedded Deno runtime resolves them and runs Vite, so the Python project does not need Node.js.
+- **Typed tool calls:** `belgie generate` turns MCP tool schemas into typed TypeScript callers, and
+  `useToolResult` wires them to the opening result and later refreshes.
+- **Host-native behavior:** Read theme, locale, safe areas, and device type; request fullscreen,
+  open modals, send follow-up messages, and update model context from the view.
+- **Agent-generated UI:** Let Pydantic AI and LangChain agents author React views at runtime with
+  `render_widget`, alongside a sandboxed JavaScript and TypeScript tool.
 
 ## Installation
 
 ```bash
-uv add belgie
+uv add "belgie[mcp,cli]"
 uvx library-skills install  # optional: install the use-belgie skill for Cursor, Codex, Claude, etc.
 ```
 
-For MCP Apps, install the MCP and CLI extras:
+Install the base package with `uv add belgie` when you only need the runtime or agent integrations.
 
-```bash
-uv add "belgie[mcp,cli]"
-```
+## Build an MCP App
 
-## Build MCP Apps
+MCP Apps fit tasks where text alone is a poor interface: charts and dashboards over query results,
+review and approval forms before a write action, pickers for products, files, or records, and
+viewers or editors for structured data. The model calls the tool, the host renders your view with
+the result, and the user keeps working in the UI.
 
-Keep the Python and JavaScript dependency workflow in one project. Attach a React widget to a Python
-MCP tool. `BelgieExtension` starts Vite in the background for development and runs a one-time
-production build.
+Attach a React widget to a Python MCP tool. `BelgieExtension` starts Vite in the background for
+development and runs a one-time production build:
 
 ```python
 from datetime import UTC, datetime
@@ -64,7 +74,7 @@ def get_time() -> dict[str, str]:
 mcp = MCPServer(name="Get Time Server", extensions=[belgie])
 ```
 
-The widget is a normal React entry. `@belgie/mcp` connects the MCP Apps host and surfaces the
+The widget is a normal React entry. `@belgie/mcp` connects to the MCP Apps host and surfaces the
 opening tool result:
 
 ```tsx
@@ -100,12 +110,45 @@ uv run belgie install
 
 Pass `build=False` to `BelgieExtension` when Vite is managed separately or production assets are already built.
 
+Connect the server to Claude as a custom connector, or to ChatGPT through developer mode or a
+plugin, and the view renders when the model calls the tool.
+
 Runnable projects:
 
 - **[mcp](examples/ui/mcp):** Minimal MCP Apps widget.
 - **[shadcn](examples/ui/shadcn):** Same pattern with Tailwind CSS and shadcn/ui.
-- **[tanstack](examples/ui/tanstack):** TanStack Start SPA and MCP widget served together through
-  FastAPI.
+- **[tanstack](examples/ui/tanstack):** One React codebase served as a TanStack Start SPA and as an
+  MCP widget through FastAPI.
+
+## Agent-generated UI
+
+Pydantic AI and LangChain agents can return a complete inline React widget through the
+`render_widget` tool (alongside `run_typescript` / `run_code`). Enable rendering on the sandbox or
+middleware. The model passes a default-export TSX module and does not call `render()`:
+
+```tsx
+export default function Widget() {
+  return <main>Hello from Belgie</main>;
+}
+```
+
+```python
+from belgie.pydantic_ai import BelgieSandbox
+
+capability = BelgieSandbox(enable_rendering=True, plugins=[])
+```
+
+`render_widget` builds HTML with `@belgie/vite` on a Belgie-owned renderer side-channel (not in the
+model-visible Deno worker). The agent Script stays workspace-restricted (no host `/etc`/`/proc`,
+`allow_sys`, or `allow_ffi`), while Vite runs only in that host-mediated worker (workspace
+read/write, FFI under `node_modules`, localhost network, limited `allow_sys`; host env denied) and
+returns one self-contained HTML string with inline JavaScript, CSS, and assets. Host-configured Vite
+plugins run only during the server build; treat them as reviewed application code and use
+`plugins=()` for untrusted agents. This API is independent from `@belgie/mcp` and its path-based
+`widget.tsx` development and production flow.
+
+See [examples/ui/pydantic-ai](examples/ui/pydantic-ai) for a web app that renders agent-authored UI
+from a prompt.
 
 ## AI agents
 
@@ -166,8 +209,9 @@ See [examples/ai/langchain](examples/ai/langchain).
 
 ## Under the hood: Deno in Python
 
-MCP Apps and both agent sandbox integrations use Belgie's embedded Deno runtime. Call it directly
-when you need JavaScript or TypeScript from Python without MCP or an agent framework:
+MCP App builds, agent-generated UI, and both agent sandbox integrations use Belgie's embedded Deno
+runtime. Call it directly when you need JavaScript or TypeScript from Python without MCP or an agent
+framework:
 
 - **Scripts:** Inline or file-based JS/TS with `Runtime` and `Script`, sync or async.
 - **Inline dependencies:** Import npm, JSR, and URL modules from source.
@@ -209,33 +253,6 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-## Inline widget rendering
-
-Pydantic AI and LangChain agents can return a complete inline React widget through the
-`render_widget` tool (alongside `run_typescript` / `run_code`). Enable rendering on the sandbox or
-middleware and pass a default-export TSX module — do not call `render()`:
-
-```tsx
-export default function Widget() {
-  return <main>Hello from Belgie</main>;
-}
-```
-
-```python
-from belgie.pydantic_ai import BelgieSandbox
-
-capability = BelgieSandbox(enable_rendering=True, plugins=[])
-```
-
-`render_widget` builds HTML with `@belgie/vite` on a Belgie-owned renderer side-channel (not in the
-model-visible Deno worker). The agent Script stays workspace-restricted — no host `/etc`/`/proc`,
-`allow_sys`, or `allow_ffi` — while Vite runs only in that host-mediated worker (workspace
-read/write, FFI under `node_modules`, localhost network, limited `allow_sys`; host env denied) and
-returns one self-contained HTML string with inline JavaScript, CSS, and assets. Host-configured Vite
-plugins run only during the server build; treat them as reviewed application code and use
-`plugins=()` for untrusted agents. This API is independent from `@belgie/mcp` and its path-based
-`widget.tsx` development and production flow.
-
 ## Examples
 
 Small, runnable projects. Each focuses on one capability.
@@ -246,6 +263,8 @@ Small, runnable projects. Each focuses on one capability.
 - **[shadcn](examples/ui/shadcn):** MCP Apps widget styled with Tailwind CSS and shadcn/ui.
 - **[tanstack](examples/ui/tanstack):** TanStack Start SPA and MCP widget served together through
   FastAPI.
+- **[pydantic-ai](examples/ui/pydantic-ai):** FastAPI SPA that renders agent-authored UI from a
+  prompt.
 
 ### AI
 

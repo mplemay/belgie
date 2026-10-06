@@ -16,7 +16,7 @@
     "react-dom": "19.3.0",
     "zod": "^4.6.5"
   },
-  "description": "TypeScript support for Belgie MCP widgets and generated tool clients.",
+  "description": "React widgets, host hooks, and typed tool callers for MCP Apps in Claude, ChatGPT, and other hosts.",
   "devDependencies": {
     "@arethetypeswrong/core": "^0.18.5",
     "@modelcontextprotocol/ext-apps": "^1.7.5",

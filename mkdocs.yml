@@ -1,5 +1,5 @@
 site_name: Belgie
-site_description: Run JavaScript, TypeScript, and TSX from Python for AI agents, MCP Apps, and direct runtime workflows.
+site_description: Build interactive MCP App UIs for Claude, ChatGPT, and other MCP hosts from Python, with React, Vite, and an embedded Deno runtime.
 strict: true
 site_url: https://mplemay.github.io/belgie/
 
@@ -13,26 +13,25 @@ nav:
       - Install: install.md
       - Help: help.md
       - Troubleshooting: troubleshooting.md
+  - MCP Apps:
+      - Guide: mcp-apps.md
+      - "@belgie/mcp": packages/mcp.md
+      - "@belgie/vite": packages/vite.md
+  - AI Agents:
+      - Overview: agents/overview.md
+      - Pydantic AI: agents/pydantic-ai.md
+      - LangChain: agents/langchain.md
   - Core Concepts:
       - Runtime: runtime.md
       - Script: script.md
       - Environment: environment.md
       - Command: command.md
-  - Integrations:
-      - MCP Apps: mcp-apps.md
-      - AI Agents:
-          - Overview: agents/overview.md
-          - Pydantic AI: agents/pydantic-ai.md
-          - LangChain: agents/langchain.md
   - CLI: cli.md
-  - Packages:
-      - "@belgie/mcp": packages/mcp.md
-      - "@belgie/vite": packages/vite.md
   - Examples:
       - Overview: examples/index.md
-      - Basic Runtime: examples/basic.md
       - MCP Apps: examples/mcp.md
       - AI Agents: examples/ai-agents.md
+      - Basic Runtime: examples/basic.md
   - Project:
       - Contributing: contributing.md
       - Changelog: changelog.md
