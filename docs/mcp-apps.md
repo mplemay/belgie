@@ -1,8 +1,10 @@
 # MCP Apps
 
-Use `BelgieExtension` when a Python MCP tool needs a React widget in the host. You keep the widget
-as a regular Vite entry at `<srcDir>/<name>/widget.tsx`; Belgie serves it from Vite during
-development and reads self-contained built HTML in production.
+Use `BelgieExtension` to give a Python MCP tool an interactive React UI that renders inside the AI
+host: inline in a Claude conversation, as part of a ChatGPT app or plugin, or in any other host
+that supports the [MCP Apps](https://github.com/modelcontextprotocol/ext-apps) extension. You keep
+the widget as a regular Vite entry at `<srcDir>/<name>/widget.tsx`; Belgie serves it from Vite
+during development and reads self-contained built HTML in production.
 
 The workflow has four parts: Python registers the tool and widget path, Vite builds the browser
 entry, code generation creates typed callers from the MCP schema, and the widget reads or refreshes
@@ -11,6 +13,37 @@ tool results through the connected host.
 Choose MCP Apps when the widget belongs to a Python MCP server. For an agent-authored widget that
 returns one HTML document as a tool result, use [@belgie/vite](packages/vite.md) and the agent
 `render_widget` tool instead.
+
+## Hosts and surfaces {#hosts-and-surfaces}
+
+MCP Apps is the shared UI extension to the Model Context Protocol. A tool declares a `ui://` HTML
+resource, and the host renders it in a sandboxed iframe that talks to the host over `postMessage`.
+Belgie generates that resource from your `widget.tsx` and handles the host bridge, so one widget
+works across hosts:
+
+| Host | Where the widget appears |
+| --- | --- |
+| Claude (web and desktop) | Inline in the conversation when the tool runs. |
+| ChatGPT | Inside apps, which ChatGPT packages into plugins. Inline cards, fullscreen, and picture-in-picture display modes. |
+| VS Code, Goose, and other MCP Apps hosts | Inline in the agent chat, subject to each host's supported display modes. |
+
+Design for the host rather than for a standalone page:
+
+- **Keep the inline view focused.** Show the one result or decision the tool produced, and use
+  `useDisplayMode()` to offer fullscreen for richer workflows.
+- **Follow host styling.** Read `useTheme()`, `useLocale()`, and `useLayout()` so the view matches
+  light and dark mode and respects safe areas and the granted height.
+- **Keep the model in the loop.** Use `updateModelContext` when the user changes state the model
+  should know about, and `sendMessage` when a UI action should continue the conversation.
+- **Adapt only where needed.** `useHostInfo()` reports the host (`claude`, `chatgpt`, and others)
+  for the rare case where behavior must differ.
+
+!!! note "ChatGPT plugin extensions"
+    ChatGPT plugins can also declare surfaces such as sidebar apps, conversation panels, file
+    viewers, and composer mentions through
+    [OpenAI's MCP extensions](https://github.com/openai/mcp-extensions). These are ChatGPT-specific
+    additions to MCP. Belgie registers standard MCP Apps tool UIs and does not declare those
+    entrypoints.
 
 ## Install
 

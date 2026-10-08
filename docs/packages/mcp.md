@@ -1,7 +1,8 @@
 # `@belgie/mcp`
 
-Use `@belgie/mcp` to build the browser side of a Belgie MCP App. It provides connected React
-widgets, typed MCP tool callers, host-context hooks, host actions, and modal support. Use
+Use `@belgie/mcp` to build the browser side of a Belgie MCP App: the React view that Claude,
+ChatGPT, and other MCP Apps hosts render when your tool runs. It provides connected React widgets,
+typed MCP tool callers, host-context hooks, host actions, and modal support. Use
 [`@belgie/vite`](vite.md) for the Vite plugin that discovers and builds path-based widgets.
 
 Use this page for TypeScript and React APIs. Use [MCP Apps](../mcp-apps.md) for Python tool

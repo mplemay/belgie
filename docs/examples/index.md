@@ -7,9 +7,9 @@ Each project has its own `pyproject.toml` and can run independently from the rep
 
 | Path | Start here | Demonstrates |
 | --- | --- | --- |
+| MCP Apps | [MCP Apps](mcp.md) | Python MCP tools with React widgets for Claude, ChatGPT, and other hosts. |
+| AI agents | [AI Agents](ai-agents.md) | Agent-authored UI, Pydantic AI `run_typescript`, and LangChain `run_code`. |
 | Basic runtime | [Basic Runtime](basic.md) | Scripts, imports, environments, and commands. |
-| MCP Apps | [MCP Apps](mcp.md) | Python MCP tools, React widgets, and Vite. |
-| AI agents | [AI Agents](ai-agents.md) | Pydantic AI `run_typescript` and LangChain `run_code`. |
 
 ## Run an example
 
@@ -25,15 +25,6 @@ endpoint documented in that project's README.
 
 ## Examples in the repository
 
-### Basic
-
-- `examples/basic/simple`: file-based TypeScript with `Runtime.from_folder`.
-- `examples/basic/inline-deps`: inline npm, JSR, and URL imports.
-- `examples/basic/jsr-deps`: a named JSR dependency in an `Environment`.
-- `examples/basic/pyproject`: project dependency management with the CLI.
-- `examples/basic/environment`: sync and async environments with a project path.
-- `examples/basic/commands`: installed package binaries through `Command`.
-
 ### UI
 
 - `examples/ui/mcp`: a minimal MCP Apps widget.
@@ -45,6 +36,15 @@ endpoint documented in that project's README.
 
 - `examples/ai/pydantic-ai`: Pydantic AI with `BelgieSandbox`.
 - `examples/ai/langchain`: LangChain with `BelgieMiddleware`.
+
+### Basic
+
+- `examples/basic/simple`: file-based TypeScript with `Runtime.from_folder`.
+- `examples/basic/inline-deps`: inline npm, JSR, and URL imports.
+- `examples/basic/jsr-deps`: a named JSR dependency in an `Environment`.
+- `examples/basic/pyproject`: project dependency management with the CLI.
+- `examples/basic/environment`: sync and async environments with a project path.
+- `examples/basic/commands`: installed package binaries through `Command`.
 
 ## See also
 

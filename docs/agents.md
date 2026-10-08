@@ -31,20 +31,20 @@ Recommended top-level shape:
 nav:
   - Home: index.md
   - Install: install.md
+  - MCP Apps:
+      - Guide: mcp-apps.md
+      - "@belgie/mcp": packages/mcp.md
+      - "@belgie/vite": packages/vite.md
+  - AI Agents:
+      - Overview: agents/overview.md
+      - Pydantic AI: agents/pydantic-ai.md
+      - LangChain: agents/langchain.md
   - Core Concepts:
       - Runtime: runtime.md
       - Script: script.md
       - Environment: environment.md
       - Command: command.md
-  - MCP Apps: mcp-apps.md
-  - AI Agents:
-      - Overview: agents/overview.md
-      - Pydantic AI: agents/pydantic-ai.md
-      - LangChain: agents/langchain.md
   - CLI: cli.md
-  - Packages:
-      - "@belgie/mcp": packages/mcp.md
-      - "@belgie/vite": packages/vite.md
   - Examples:
       - examples/index.md
       # one page per example or themed group, pulling from examples/
@@ -59,13 +59,12 @@ Adapt labels and paths as the product grows, but keep the same roles:
 
 | Section | Purpose |
 | --- | --- |
-| Home | Product pitch, hello-world, next steps |
+| Home | MCP App UI pitch, hello-world widget, next steps |
 | Install | Default install, extras, optional skill install |
+| MCP Apps | `BelgieExtension`, hosts, widgets, Vite, `@belgie/mcp`, `@belgie/vite` |
+| AI Agents | `render_widget`, Pydantic AI `run_typescript`, and LangChain `run_code` sessions |
 | Core Concepts | `Runtime`, `Script`, `Environment`, `Command` |
-| MCP Apps | `BelgieExtension`, widgets, Vite, `[tool.belgie.dependencies]` |
-| AI Agents | Pydantic AI `run_typescript` and LangChain `run_code` sessions |
-| CLI | `add`, `lock`, `install`, `update`, `list`, `run` |
-| Packages | User-facing JS packages when they need dedicated docs |
+| CLI | `add`, `lock`, `install`, `update`, `list`, `run`, `generate` |
 | Examples | Walkthroughs that pull from `examples/` |
 | Help / Troubleshooting | Support channels; FAQ by error or symptom |
 | Project | Contributing, changelog / upgrade notes |
@@ -100,7 +99,7 @@ use cases) and warn when combining alternatives conflicts.
 
 ### Home / overview
 
-1. Purpose-first lead (what Belgie is for)
+1. Purpose-first lead (Belgie builds MCP App UIs for Claude, ChatGPT, and other hosts from Python)
 2. Short "why use this" list with deep links into concepts
 3. Install one-liner
 4. Minimal complete example

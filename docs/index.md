@@ -1,91 +1,131 @@
-# Run JavaScript and TypeScript from Python
+# Build MCP App UIs from Python
 
-Belgie embeds a permissioned Deno runtime in Python. Use it to run scripts, manage JavaScript
-dependencies, build React MCP Apps, or give AI agents a JavaScript and TypeScript sandbox tool.
+Belgie lets a Python MCP server ship interactive React UIs that render inside AI hosts. You write
+the tool in Python and the view in React. Belgie runs Vite during development, bundles each view
+into self-contained HTML for production, generates typed tool callers from your tool schemas, and
+exposes the host's theme, layout, and display mode to your components.
+
+Views follow the open [MCP Apps](https://github.com/modelcontextprotocol/ext-apps) standard. The
+same widget renders in Claude, in ChatGPT apps and plugins, and in other MCP Apps hosts such as VS
+Code and Goose.
+
+## What you can build
+
+MCP Apps fit tasks where a text reply is a poor interface:
+
+- **Dashboards and charts** over query results, metrics, or search hits.
+- **Review and approval forms** that let the user confirm or edit arguments before a write action.
+- **Pickers** for products, files, records, or time slots, with the choice sent back to the model.
+- **Viewers and editors** for structured data such as tables, documents, maps, or diagrams.
+
+The model calls your tool, the host renders your view with the result, and the user keeps working
+in the UI. From the view you can call tools again, send a follow-up message, update model context,
+open a modal, or request fullscreen.
 
 ## Choose a path
 
 | If you need to... | Start with | Why |
 | --- | --- | --- |
-| Execute a JavaScript, TypeScript, or TSX module | [Runtime](runtime.md) | Run inline or file-based [`Script`](script.md) modules from Python. |
-| Share dependencies or a workspace across runs | [Environment](environment.md) | Resolve npm, JSR, URL, and local file dependencies with a lockfile. |
-| Invoke an installed JavaScript package binary | [Command](command.md) | Run tools such as Vite through the same runtime boundary. |
-| Attach a React widget to an MCP tool | [MCP Apps](mcp-apps.md) | Connect Python tools, Vite widgets, and typed tool callers. |
+| Attach a React UI to a Python MCP tool | [MCP Apps](mcp-apps.md) | Connect Python tools, Vite widgets, typed tool callers, and host context. |
+| Build the browser side of a widget | [@belgie/mcp](packages/mcp.md) | `Widget`, `useToolResult`, host hooks, actions, and modals. |
+| Let an agent author a React view at runtime | [AI agents](agents/overview.md) | `render_widget` returns one self-contained HTML document. |
 | Give an AI agent a sandboxed JavaScript or TypeScript tool | [AI agents](agents/overview.md) | Add `run_typescript` to Pydantic AI or `run_code` to LangChain. |
+| Run JavaScript or TypeScript directly from Python | [Runtime](runtime.md) | The embedded Deno runtime that powers every integration. |
 
 ## Install
 
-Install the base runtime first:
+Install Belgie with the MCP and CLI extras:
 
 ```bash
-uv add belgie
+uv add "belgie[mcp,cli]"
 ```
 
-Add an integration extra when you need one. The [Install](install.md) guide lists every extra and
-the dependencies it adds.
+The [Install](install.md) guide lists every extra and the dependencies it adds.
 
-## Run a script
+## Attach a widget to a tool
 
-The smallest useful Belgie program creates a `Script`, enters a `Runtime`, and calls the exported
-function. Values crossing the Python and JavaScript boundary must be JSON-compatible.
+Pass a `Path` to a `widget.tsx` entry when registering the tool. `BelgieExtension` starts Vite with
+hot reload in development and serves built HTML in production:
 
-```python {title="hello.py"}
-import asyncio
+```python {title="server.py"}
+from datetime import UTC, datetime
+from pathlib import Path
 
-from belgie import Runtime, Script
+from mcp.server import MCPServer
 
-script = Script("""
-export default function run(name: string): string {
-  return `Hello, ${name}!`;
+from belgie.mcp import BelgieExtension
+
+belgie = BelgieExtension(project=".")
+
+
+@belgie.tool(
+    widget=Path("src/widgets/get-time/widget.tsx"),
+    name="get-time",
+    title="Get Time",
+    description="Get the current server time in ISO 8601 format.",
+)
+def get_time() -> dict[str, str]:
+    return {"time": datetime.now(tz=UTC).isoformat()}
+
+
+mcp = MCPServer(name="Get Time Server", extensions=[belgie])
+```
+
+The widget reads the opening tool result and can call the tool again:
+
+```tsx {title="src/widgets/get-time/widget.tsx"}
+import { Widget, useToolResult } from "@belgie/mcp";
+import { getTime } from "@widgets/tools";
+
+function AppView() {
+  const { data, isLoading, execute } = useToolResult(getTime);
+  return (
+    <main>
+      <p>{data?.time ?? (isLoading ? "Waiting..." : "No time returned.")}</p>
+      <button onClick={() => void execute()}>Refresh</button>
+    </main>
+  );
 }
-""")
 
-
-async def main() -> None:
-    async with Runtime() as runtime:
-        greeting = await runtime(script)("Belgie")
-    print(greeting)
-
-
-asyncio.run(main())
+export default function GetTime() {
+  return (
+    <Widget metadata={{ name: "Get Time", version: "1.0.0" }}>
+      <AppView />
+    </Widget>
+  );
+}
 ```
 
-See [Runtime](runtime.md) and [Script](script.md) for synchronous and asynchronous use, file-based
-scripts, imports, and the data bridge.
+Follow [MCP Apps](mcp-apps.md) for dependencies, Vite configuration, and code generation, or run
+the complete [MCP Apps example](examples/mcp.md).
 
-## Build an MCP App
+## Let an agent build the UI
 
-Use [`BelgieExtension`](mcp-apps.md) to connect a Python MCP tool to a React widget at
-`<name>/widget.tsx`. Belgie uses Vite during development and serves self-contained widget HTML in
-production. Follow the [MCP Apps example](examples/mcp.md) for the complete workflow.
-
-## Give an agent a JavaScript sandbox
-
-Install one supported integration:
+When the view is not known ahead of time, let the model write it. Pydantic AI and LangChain agents
+can return a React widget through `render_widget`:
 
 ```bash
 uv add "belgie[pydantic-ai]"
 ```
-
-Then add Belgie to the agent:
 
 ```python
 from pydantic_ai import Agent
 
 from belgie.pydantic_ai import BelgieSandbox
 
-agent = Agent("openai:gpt-5", capabilities=[BelgieSandbox()])
-result = agent.run_sync("Use TypeScript to convert 'hello-world' to camelCase.")
+agent = Agent("openai:gpt-5", capabilities=[BelgieSandbox(enable_rendering=True, plugins=[])])
+result = agent.run_sync("Render a card that shows today's date.")
 print(result.output)
 ```
 
-See the [AI agent overview](agents/overview.md) for the tool contract and safety boundaries, then
-choose the [Pydantic AI](agents/pydantic-ai.md) or [LangChain](agents/langchain.md) integration.
+See the [AI agent overview](agents/overview.md) for the tool contract and safety boundaries, and
+[@belgie/vite](packages/vite.md) for the rendering pipeline.
 
 ## Next steps
 
 - Follow [Install](install.md) to choose extras and verify the runtime.
-- Learn how [Runtime](runtime.md), [Script](script.md), and [Environment](environment.md) fit together.
 - Build the [MCP Apps example](examples/mcp.md).
-- Read about [inline React rendering](packages/vite.md) for agent-authored widgets.
+- Read [@belgie/mcp](packages/mcp.md) for host context, actions, and modals.
+- Learn how [Runtime](runtime.md), [Script](script.md), and [Environment](environment.md) power the
+  build and sandbox layers.
 - Use [Troubleshooting](troubleshooting.md) when setup or runtime errors need diagnosis.

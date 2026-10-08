@@ -1,7 +1,18 @@
 # Install Belgie
 
-Install Belgie when an AI agent or Python application needs to run JavaScript, TypeScript, or TSX.
-The base package embeds a Deno-powered runtime and does not install a separate Node.js runtime.
+Install Belgie to build MCP App UIs for Claude, ChatGPT, and other MCP Apps hosts from a Python
+MCP server, or to give an AI agent a JavaScript and TypeScript sandbox. The base package embeds a
+Deno-powered runtime, so neither path needs a separate Node.js install.
+
+## Install for MCP Apps
+
+Most projects start with the MCP and CLI extras:
+
+```bash
+uv add "belgie[mcp,cli]"
+```
+
+Then follow [MCP Apps](mcp-apps.md) to declare widget dependencies and register a tool.
 
 ## Install the runtime
 
@@ -9,8 +20,8 @@ The base package embeds a Deno-powered runtime and does not install a separate N
 uv add belgie
 ```
 
-Belgie supports Python 3.12 through 3.14. Start here if you want direct script execution or plan to
-add an integration later.
+Belgie supports Python 3.12 through 3.14. Install the base package alone when you want direct
+script execution or plan to add an integration later.
 
 ## Choose an integration
 
@@ -22,12 +33,6 @@ Install only the integration dependencies your project uses.
 | `mcp` | MCP server and MCP Apps types | Python MCP tools with `BelgieExtension`. |
 | `pydantic-ai` | Pydantic AI with the OpenAI provider | `BelgieSandbox`. |
 | `langchain` | LangChain | `BelgieMiddleware`. |
-
-Choose only the extras your application uses:
-
-```bash
-uv add "belgie[mcp,cli]"
-```
 
 For an agent project, install the framework you use:
 
@@ -78,7 +83,7 @@ The skill is optional. It is not required to import or run Belgie.
 
 ## Further reading
 
+- [MCP Apps](mcp-apps.md) for widgets and Python MCP tools.
 - [Runtime](runtime.md) for direct JavaScript and TypeScript execution.
 - [Environment](environment.md) for named dependencies and lockfiles.
-- [MCP Apps](mcp-apps.md) for widgets and Python MCP tools.
 - [AI agents](agents/overview.md) for Pydantic AI `run_typescript` and LangChain `run_code` integrations.

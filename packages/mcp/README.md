@@ -1,7 +1,8 @@
 # `@belgie/mcp`
 
-`@belgie/mcp` provides the browser-side pieces of a Belgie MCP App: a connected React widget,
-typed MCP tool callers, host-context hooks, host actions, and modal support.
+`@belgie/mcp` provides the browser-side pieces of a Belgie MCP App, the React view that Claude,
+ChatGPT, and other MCP Apps hosts render when your tool runs: a connected React widget, typed MCP
+tool callers, host-context hooks, host actions, and modal support.
 
 For the full guide, see the [package documentation](https://mplemay.github.io/belgie/packages/mcp/).
 The [MCP Apps guide](https://mplemay.github.io/belgie/mcp-apps/) covers Python registration and

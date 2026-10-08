@@ -1,10 +1,11 @@
 ---
 name: use-belgie
 description: >-
-  Embed JavaScript/TypeScript in Python with belgie — Runtime, Script, Environment, Command, npm/JSR deps
-  without Node on PATH, JSON bridging, sync/async context managers, and error-driven troubleshooting. Use when
-  the user mentions belgie, embedded JS in Python, Deno runtime, npm packages from Python, JSR imports,
-  TypeScript scripts, or Belgie* errors.
+  Build MCP App UIs for Claude and ChatGPT from Python with belgie (BelgieExtension, React widget.tsx views,
+  @belgie/mcp hooks, @belgie/vite builds, typed tool callers) and embed JavaScript/TypeScript in Python with
+  Runtime, Script, Environment, Command, npm/JSR deps without Node on PATH. Use when the user mentions belgie,
+  MCP Apps, MCP UI widgets, ChatGPT apps or plugins with UI, Claude interactive tool UIs, embedded JS in
+  Python, Deno runtime, npm packages from Python, JSR imports, TypeScript scripts, or Belgie* errors.
 license: MIT
 compatibility: Requires Python >=3.12,<3.15
 allowed-tools: Bash(uv *)
