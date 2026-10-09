@@ -350,8 +350,10 @@ export default function PartsViewer() {
 }
 ```
 
-See the [extension specification](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md)
-for each extension's fields and platform support.
+[`examples/ui/openai`](https://github.com/mplemay/belgie/tree/main/examples/ui/openai) is a runnable
+plugin that uses each of these extensions. See the
+[extension specification](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md) for each
+extension's fields and platform support.
 
 ## Development and production boundaries
 

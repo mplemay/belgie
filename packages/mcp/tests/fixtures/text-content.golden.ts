@@ -7,7 +7,7 @@ export type GetTimeOutput = {
 };
 
 export type GetTimeOutputAnnotations = {
-  "audience"?: readonly (("user" | "assistant") & string)[] | null;
+  "audience"?: readonly ("user" | "assistant")[] | null;
   "lastModified"?: string | null;
   "priority"?: number | null;
 };
@@ -16,7 +16,7 @@ export type GetTimeOutputTextContent = {
   "_meta"?: Record<string, unknown> | null;
   "annotations"?: GetTimeOutputAnnotations | null;
   "text": string;
-  "type"?: "text" & string;
+  "type"?: "text";
 };
 
 /** Get the current server time in ISO 8601 format. */

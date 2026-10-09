@@ -19,7 +19,7 @@ export type AudioHelperOutput = RawToolResult;
 export type CommonInputsInput = {
   "amount": number | string;
   "anything": Record<string, unknown>;
-  "choice": ("a" | "b") & string;
+  "choice": "a" | "b";
   "clock": string;
   "color": CommonInputsInputColor;
   "constrained": number;
@@ -50,15 +50,15 @@ export type CommonInputsInput = {
 };
 
 export type CommonInputsInputCat = {
-  "kind": "cat" & string;
+  "kind": "cat";
   "lives": number;
 };
 
-export type CommonInputsInputColor = ("red" | "blue") & string;
+export type CommonInputsInputColor = "red" | "blue";
 
 export type CommonInputsInputDog = {
   "good": boolean;
-  "kind": "dog" & string;
+  "kind": "dog";
 };
 
 export type CommonInputsInputJsonValue = unknown;
@@ -91,13 +91,13 @@ export type CommonInputsOutput = {
 };
 
 export type CommonInputsOutputCat = {
-  "kind": "cat" & string;
+  "kind": "cat";
   "lives": number;
 };
 
 export type CommonInputsOutputDog = {
   "good": boolean;
-  "kind": "dog" & string;
+  "kind": "dog";
 };
 
 export type CommonInputsOutputNode = {
