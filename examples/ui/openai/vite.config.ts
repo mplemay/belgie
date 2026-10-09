@@ -1,0 +1,18 @@
+import path from "node:path";
+
+import { belgie } from "@belgie/vite";
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
+
+const viewsDir = path.resolve(import.meta.dirname, "src/openai_app/views");
+const widgetsDir = path.resolve(viewsDir, "widgets");
+
+export default defineConfig({
+  plugins: [belgie({ srcDir: "src/openai_app/views/widgets" }), react()],
+  resolve: {
+    alias: {
+      "@": viewsDir,
+      "@widgets": widgetsDir,
+    },
+  },
+});

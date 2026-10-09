@@ -78,6 +78,20 @@ def mcp_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
 
 
 @pytest.fixture
+def openai_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
+    from belgie.mcp import _extension  # noqa: PLC0415
+
+    html = "<!doctype html><html><body>openai</body></html>"
+    monkeypatch.setattr(_extension, "ensure_vite_dev_server", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        _extension,
+        "load_development_widget",
+        lambda *_args, **_kwargs: html,
+    )
+    yield from _load_example_main(EXAMPLES_ROOT / "ui" / "openai", "openai_app")
+
+
+@pytest.fixture
 def shadcn_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
     from belgie.mcp import _extension  # noqa: PLC0415
 

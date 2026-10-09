@@ -190,6 +190,11 @@ export function TypeFixture() {
   closeModal();
 
   const messageResult: ReturnType<App["sendMessage"]> = sendMessage(message, requestOptions);
+  void sendMessage({
+    _meta: { "openai/message": { send: false, target: "new" } },
+    content: [{ text: "Draft", type: "text" }],
+    role: "user",
+  });
   const logResult: ReturnType<App["sendLog"]> = sendLog(log);
   const modelContextResult: ReturnType<App["updateModelContext"]> = updateModelContext(modelContext, requestOptions);
   const openLinkResult: ReturnType<App["openLink"]> = openLink(link, requestOptions);

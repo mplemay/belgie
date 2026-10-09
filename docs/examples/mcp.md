@@ -87,6 +87,8 @@ starting a Vite development server.
   Tailwind CSS and shadcn/ui components.
 - [`examples/ui/tanstack`](https://github.com/mplemay/belgie/tree/main/examples/ui/tanstack) serves a
   TanStack Start frontend and the MCP endpoint through FastAPI.
+- [`examples/ui/openai`](https://github.com/mplemay/belgie/tree/main/examples/ui/openai) adds ChatGPT
+  plugin extensions: sidebar and file viewer entrypoints, settings, mentions, forms, and deep links.
 
 ## See also
 

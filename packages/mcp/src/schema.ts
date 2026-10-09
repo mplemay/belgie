@@ -235,6 +235,45 @@ function intersection(types: string[]): string {
   return unique.map((type) => parenthesize(type)).join(" & ");
 }
 
+function literalValues(schema: JsonObject, location: string): { type: string; value: unknown }[] | undefined {
+  if (schema.const !== undefined) {
+    return [{ type: literal(schema.const, `${location}.const`), value: schema.const }];
+  }
+  if (schema.enum === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(schema.enum) || schema.enum.length === 0) {
+    throw new Error(`${location}.enum must be a non-empty array`);
+  }
+  return schema.enum.map((value, index) => ({ type: literal(value, `${location}.enum[${index}]`), value }));
+}
+
+function matchesPrimitiveType(value: unknown, type: unknown): boolean {
+  const types = Array.isArray(type) ? type : [type];
+  return types.some((item) => {
+    switch (item) {
+      case "string": {
+        return typeof value === "string";
+      }
+      case "number": {
+        return typeof value === "number";
+      }
+      case "integer": {
+        return Number.isInteger(value);
+      }
+      case "boolean": {
+        return typeof value === "boolean";
+      }
+      case "null": {
+        return value === null;
+      }
+      default: {
+        return false;
+      }
+    }
+  });
+}
+
 function parenthesize(type: string): string {
   return hasTopLevelOperator(type, " | ") ? `(${type})` : type;
 }
@@ -367,13 +406,9 @@ class SchemaCompiler {
       return this.nullable(intersection(parts), schema);
     }
 
-    if (schema.const !== undefined) {
-      parts.push(literal(schema.const, `${location}.const`));
-    } else if (schema.enum !== undefined) {
-      if (!Array.isArray(schema.enum) || schema.enum.length === 0) {
-        throw new Error(`${location}.enum must be a non-empty array`);
-      }
-      parts.push(union(schema.enum.map((item, index) => literal(item, `${location}.enum[${index}]`))));
+    const literals = literalValues(schema, location);
+    if (literals !== undefined) {
+      parts.push(union(literals.map(({ type }) => type)));
     }
 
     for (const keyword of ["oneOf", "anyOf"] as const) {
@@ -402,7 +437,11 @@ class SchemaCompiler {
       new Set(["allOf", "anyOf", "const", "enum", "nullable", "oneOf", ...ANNOTATION_KEYWORDS]),
     );
     if (typeSchema.type !== undefined) {
-      parts.push(this.explicitType(typeSchema, location));
+      const explicit = this.explicitType(typeSchema, location);
+      // `"a" & string` reduces to `"a"`, so a primitive type that every literal satisfies adds nothing.
+      if (literals === undefined || !literals.every(({ value }) => matchesPrimitiveType(value, typeSchema.type))) {
+        parts.push(explicit);
+      }
     } else if (
       typeSchema.properties !== undefined ||
       typeSchema.additionalProperties !== undefined ||

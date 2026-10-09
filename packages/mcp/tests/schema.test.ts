@@ -48,6 +48,14 @@ describe("schema compilation", () => {
     assert.deepEqual(compile({ const: false }), ["export type Example = false;"]);
   });
 
+  it("omits primitive types already satisfied by every literal", () => {
+    assert.deepEqual(compile({ enum: ["mm", "in"], type: "string" }), ['export type Example = "mm" | "in";']);
+    assert.deepEqual(compile({ const: 2, type: "integer" }), ["export type Example = 2;"]);
+    assert.deepEqual(compile({ enum: ["on", null], type: ["string", "null"] }), ['export type Example = "on" | null;']);
+    assert.deepEqual(compile({ enum: ["on", 1], type: "string" }), ['export type Example = ("on" | 1) & string;']);
+    assert.deepEqual(compile({ const: 1.5, type: "integer" }), ["export type Example = 1.5 & number;"]);
+  });
+
   it("compiles unions, intersections, and boolean schemas", () => {
     assert.deepEqual(
       compile({
