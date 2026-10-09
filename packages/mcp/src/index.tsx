@@ -22,6 +22,7 @@ export {
   updateModelContext,
 } from "./app";
 
+export type { SendMessageParams } from "./app";
 export type { ModalOptions } from "./modal";
 
 export {

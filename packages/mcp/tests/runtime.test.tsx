@@ -1247,6 +1247,7 @@ test("forwards common app helpers through the active Widget", async () => {
     });
 
     const message = {
+      _meta: { "openai/message": { target: "new" } },
       content: [{ type: "text", text: "hello" }],
       role: "user",
     };

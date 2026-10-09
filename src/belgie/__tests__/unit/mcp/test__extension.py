@@ -2,7 +2,9 @@ from pathlib import Path
 from typing import cast
 
 import pytest
+from mcp import Client
 from mcp.server.apps import APP_MIME_TYPE, ResourceCsp
+from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.resources import TextResource
 from mcp_types import Icon, ToolAnnotations
 
@@ -89,6 +91,51 @@ def test_tool_accepts_custom_resource_uri_and_resource_ui_metadata(tmp_path: Pat
             "prefersBorder": True,
         },
     }
+
+
+def test_tool_merges_resource_meta_with_resource_ui_metadata(tmp_path: Path) -> None:
+    widget = write_widget(tmp_path)
+    extension = BelgieExtension(project=tmp_path, dev=False, build=False)
+    openai_ui = {"availableDisplayModes": ["inline", "fullscreen"], "preferredDisplayMode": "fullscreen"}
+
+    @extension.tool(
+        widget=widget,
+        name="get-time",
+        prefers_border=True,
+        meta={"openai/ui": {"entrypoints": [{"type": "global"}]}},
+        resource_meta={"openai/ui": openai_ui},
+    )
+    def get_time() -> str:
+        return "now"
+
+    assert extension.tools()[0].meta == {
+        "openai/ui": {"entrypoints": [{"type": "global"}]},
+        "ui": {"resourceUri": "ui://get-time"},
+    }
+    assert extension.resources()[0].resource.meta == {"openai/ui": openai_ui, "ui": {"prefersBorder": True}}
+
+
+def test_tool_rejects_ui_key_in_resource_meta(tmp_path: Path) -> None:
+    widget = write_widget(tmp_path)
+    extension = BelgieExtension(project=tmp_path, dev=False, build=False)
+
+    with pytest.raises(ValueError, match="resource_meta cannot contain 'ui'"):
+        extension.tool(widget=widget, name="get-time", resource_meta={"ui": {"domain": "https://example.com"}})
+
+
+async def test_resource_meta_is_returned_on_read_resource_contents(tmp_path: Path) -> None:
+    widget = write_widget(tmp_path)
+    extension = BelgieExtension(project=tmp_path, dev=False, build=False)
+    openai_ui = {"availableDisplayModes": ["fullscreen"]}
+
+    @extension.tool(widget=widget, name="get-time", resource_meta={"openai/ui": openai_ui})
+    def get_time() -> str:
+        return "now"
+
+    async with Client(MCPServer(name="test", extensions=[extension])) as client:
+        result = await client.read_resource("ui://get-time")
+
+    assert result.contents[0].meta == {"openai/ui": openai_ui}
 
 
 def test_tool_forwards_annotations_icons_and_structured_output(tmp_path: Path) -> None:

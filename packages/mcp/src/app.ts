@@ -4,8 +4,14 @@ import { closeModal as closeModalImpl, openModal } from "./modal";
 import type { ModalOptions } from "./modal";
 import { getActiveWidget } from "./widget-context";
 
-export function sendMessage(...args: Parameters<App["sendMessage"]>): ReturnType<App["sendMessage"]> {
-  return getActiveWidget().sendMessage(...args);
+// Ext-apps omits request `_meta`; hosts read extensions such as `_meta["openai/message"]` from it.
+export type SendMessageParams = Parameters<App["sendMessage"]>[0] & { _meta?: Record<string, unknown> };
+
+export function sendMessage(
+  params: SendMessageParams,
+  options?: Parameters<App["sendMessage"]>[1],
+): ReturnType<App["sendMessage"]> {
+  return getActiveWidget().sendMessage(params, options);
 }
 
 export function sendLog(...args: Parameters<App["sendLog"]>): ReturnType<App["sendLog"]> {

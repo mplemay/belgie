@@ -329,6 +329,10 @@ async function notifyHost() {
 }
 ```
 
+`sendMessage` also accepts request `_meta` for host extensions, such as ChatGPT's
+`_meta["openai/message"]` targets and drafts. See
+[ChatGPT plugin extensions](../mcp-apps.md#chatgpt-plugin-extensions).
+
 Other helpers include `downloadFile`, `requestDisplayMode`, `requestSize`, and `requestTeardown`.
 `requestSize({ width, height })` sends `ui/notifications/size-changed`. Omit a dimension to leave
 it unchanged. The promise resolves when the notification is sent, not when the host applies it;

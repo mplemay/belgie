@@ -5,7 +5,8 @@ from pathlib import Path
 from typing import Any, Final, TypeVar
 from urllib.parse import urlparse, urlunparse
 
-from mcp.server.apps import Apps, ResourceCsp, ResourcePermissions, Visibility
+from mcp.server.apps import APP_MIME_TYPE, Apps, ResourceCsp, ResourcePermissions, Visibility
+from mcp.server.mcpserver.resources import TextResource
 from mcp_types import Icon, ToolAnnotations
 
 from belgie._pyproject import discover_pyproject_root
@@ -18,6 +19,9 @@ DEFAULT_DEV_HOST: Final[str] = "127.0.0.1"
 DEFAULT_DEV_PORT: Final[int] = 5173
 INVALID_WIDGET_TYPE_ERROR: Final[str] = "widget must be a pathlib.Path pointing to widget.tsx, got {widget_type}"
 TYPE_GENERATION_WIDGET_HTML: Final[str] = "<!doctype html><html><body></body></html>"
+RESOURCE_META_UI_KEY_ERROR: Final[str] = (
+    "resource_meta cannot contain 'ui'; use csp, permissions, domain, or prefers_border"
+)
 TYPE_GENERATION_ACTIVE: ContextVar[bool] = ContextVar("belgie_mcp_type_generation_active", default=False)
 
 
@@ -65,23 +69,33 @@ class BelgieExtension(Apps):
         permissions: ResourcePermissions | None = None,
         domain: str | None = None,
         prefers_border: bool | None = None,
+        resource_meta: dict[str, Any] | None = None,
     ) -> Callable[[CallableT], CallableT]:
+        if resource_meta and "ui" in resource_meta:
+            raise ValueError(RESOURCE_META_UI_KEY_ERROR)
         html = self._load_widget(widget)
         resource_csp = self._path_csp(csp)
 
         def decorator(fn: CallableT) -> CallableT:
             tool_name = name or getattr(fn, "__name__", "tool")
             uri = resource_uri or f"ui://{tool_name}"
-            self.add_html_resource(
-                uri,
-                html,
-                name=tool_name,
-                title=title,
-                description=description,
+            resource_ui = _resource_ui_meta(
                 csp=resource_csp,
                 permissions=permissions,
                 domain=domain,
                 prefers_border=prefers_border,
+            )
+            merged_meta = {**(resource_meta or {}), **({"ui": resource_ui} if resource_ui else {})}
+            self.add_resource(
+                TextResource(
+                    uri=uri,
+                    name=tool_name,
+                    title=title,
+                    description=description,
+                    mime_type=APP_MIME_TYPE,
+                    meta=merged_meta or None,
+                    text=html,
+                ),
             )
             return Apps.tool(
                 self,
@@ -127,6 +141,25 @@ class BelgieExtension(Apps):
         if not self._dev:
             return csp
         return _merge_dev_csp(csp, self._dev_url)
+
+
+def _resource_ui_meta(
+    *,
+    csp: ResourceCsp | None,
+    permissions: ResourcePermissions | None,
+    domain: str | None,
+    prefers_border: bool | None,
+) -> dict[str, Any]:
+    ui: dict[str, Any] = {}
+    if csp is not None:
+        ui["csp"] = csp.model_dump(by_alias=True, exclude_none=True)
+    if permissions is not None:
+        ui["permissions"] = permissions.model_dump(by_alias=True, exclude_none=True)
+    if domain is not None:
+        ui["domain"] = domain
+    if prefers_border is not None:
+        ui["prefersBorder"] = prefers_border
+    return ui
 
 
 def _merge_dev_csp(csp: ResourceCsp | None, dev_url: str) -> ResourceCsp:
