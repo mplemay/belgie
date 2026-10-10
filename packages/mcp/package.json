@@ -10,7 +10,7 @@
     "url": "https://github.com/mplemay/belgie/issues"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "open": "^11.0.4",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -19,17 +19,17 @@
   "description": "React widgets, host hooks, and typed tool callers for MCP Apps in Claude, ChatGPT, and other hosts.",
   "devDependencies": {
     "@arethetypeswrong/core": "^0.18.5",
-    "@modelcontextprotocol/ext-apps": "^1.7.5",
-    "@types/node": "26.6.2",
+    "@modelcontextprotocol/ext-apps": "^2.0.3",
+    "@types/node": "26.6.5",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
-    "@vitest/coverage-v8": "^4.1.11",
-    "jsdom": "^29.1.1",
-    "publint": "^0.3.24",
-    "tsdown": "^0.22.14",
+    "@vitest/coverage-v8": "^5.0.3",
+    "jsdom": "^30.1.2",
+    "publint": "^0.3.25",
+    "tsdown": "^0.23.0",
     "typescript": "^7.0.2",
-    "vite": "8.3.0",
-    "vitest": "^4.1.11"
+    "vite": "8.3.4",
+    "vitest": "^5.0.3"
   },
   "engines": {
     "node": ">=22"
