@@ -23,6 +23,7 @@
     "npm:@types/react@^19.3.0": "19.3.0",
     "npm:@vitejs/plugin-react@6": "6.1.2_vite@8.3.4",
     "npm:@vitejs/plugin-react@6.1.1": "6.1.1_vite@8.3.4",
+    "npm:@vitejs/plugin-react@6.1.2": "6.1.2_vite@8.3.4",
     "npm:@vitejs/plugin-react@^6.0.5": "6.1.2_vite@8.3.4",
     "npm:@vitejs/plugin-react@^6.1.1": "6.1.2_vite@8.3.4",
     "npm:@vitejs/plugin-react@^6.1.2": "6.1.2_vite@8.3.4",
@@ -59,6 +60,7 @@
     "npm:vite@8.3.0": "8.3.0",
     "npm:vite@8.3.4": "8.3.4",
     "npm:vite@^8.3.0": "8.3.4",
+    "npm:vite@^8.3.4": "8.3.4",
     "npm:zod@^4.4.3": "4.6.5",
     "npm:zod@^4.6.5": "4.6.5"
   },
@@ -418,7 +420,7 @@
     "@modelcontextprotocol/ext-apps@1.7.5_@modelcontextprotocol+sdk@1.32.1__zod@4.6.5_react@19.3.0_react-dom@19.3.0_zod@4.6.5": {
       "integrity": "sha512-TjPH2S2y5UEGKhmI6+XGFuqfqOV4ppe1x6DA3txnUaEWkgtA4G5vo14jGKFZmegdkZ1H4QMLyujLvoU1BEdnAg==",
       "dependencies": [
-        "@modelcontextprotocol/sdk@1.32.1_zod@4.6.5",
+        "@modelcontextprotocol/sdk",
         "@standard-schema/spec",
         "react@19.3.0",
         "react-dom@19.3.0_react@19.3.0",
@@ -442,28 +444,6 @@
       "optionalPeers": [
         "react@19.3.0",
         "react-dom@19.3.0_react@19.3.0"
-      ]
-    },
-    "@modelcontextprotocol/sdk@1.32.1_zod@3.25.76": {
-      "integrity": "sha512-2DdE+SJDtzLEEWzY1ZjY7Q+VcPhcV1KisD3zI4u0XZyktsjHum1mwbMI+JaulUBi2OZk+KJAi2uPXzxichPkdw==",
-      "dependencies": [
-        "@hono/node-server",
-        "ajv",
-        "ajv-formats@3.0.1_ajv@8.20.0",
-        "content-type@1.0.5",
-        "cors",
-        "cross-spawn",
-        "eventsource",
-        "eventsource-parser",
-        "express",
-        "express-rate-limit",
-        "hono",
-        "jose",
-        "json-schema-typed@8.0.2",
-        "pkce-challenge",
-        "raw-body",
-        "zod@3.25.76",
-        "zod-to-json-schema@3.25.2_zod@3.25.76"
       ]
     },
     "@modelcontextprotocol/sdk@1.32.1_zod@4.6.5": {
@@ -922,7 +902,7 @@
         "http-errors",
         "iconv-lite",
         "on-finished",
-        "qs@6.15.3",
+        "qs",
         "raw-body",
         "type-is"
       ]
@@ -1250,7 +1230,7 @@
         "once",
         "parseurl",
         "proxy-addr",
-        "qs@6.16.0",
+        "qs",
         "range-parser",
         "router",
         "send",
@@ -1984,13 +1964,6 @@
         "ipaddr.js"
       ]
     },
-    "qs@6.15.3": {
-      "integrity": "sha512-O9gl3zCl5h5blw1KGUzQKhA5oUXSl8rwUIM5o0S3nCXMliSvy5Dzx7/DJcI+SwgICv+IneSZwhBh1oSyEHA71A==",
-      "dependencies": [
-        "es-define-property",
-        "side-channel"
-      ]
-    },
     "qs@6.16.0": {
       "integrity": "sha512-h6fhOIaRrID2CbEY2fqs+7t+UXZo+MLAnU5gRIq85uFtdiUPCdsApMlHhXogKVM4HM2DVbIjGNTTYH2OcmP1vA==",
       "dependencies": [
@@ -2166,7 +2139,7 @@
         "@babel/plugin-transform-typescript",
         "@babel/preset-typescript",
         "@dotenvx/dotenvx",
-        "@modelcontextprotocol/sdk@1.32.1_zod@3.25.76",
+        "@modelcontextprotocol/sdk",
         "@shadcn/registry",
         "@types/validate-npm-package-name",
         "browserslist",
@@ -2493,10 +2466,7 @@
       "integrity": "sha512-CzhO+pFNo8ajLM2d2IW/R93ipy99LWjtwblvC1RsoSUMZgyLbYFr221TnSNT7GjGdYui6P459mw9JH/g/zW2ug=="
     },
     "zod-to-json-schema@3.25.2_zod@3.25.76": {
-      "integrity": "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA==",
-      "dependencies": [
-        "zod@3.25.76"
-      ]
+      "integrity": "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA=="
     },
     "zod-to-json-schema@3.25.2_zod@4.6.5": {
       "integrity": "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA==",

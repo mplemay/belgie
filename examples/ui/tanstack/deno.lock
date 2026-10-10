@@ -29,6 +29,7 @@
     "npm:@vitejs/plugin-react@6": "6.1.2_vite@8.3.4_@types+node@26.6.5",
     "npm:@vitejs/plugin-react@6.0.5": "6.0.5_vite@8.3.4_@types+node@26.6.5",
     "npm:@vitejs/plugin-react@6.1.1": "6.1.1_vite@8.3.4_@types+node@26.6.5",
+    "npm:@vitejs/plugin-react@6.1.2": "6.1.2_vite@8.3.4_@types+node@26.6.5",
     "npm:@vitejs/plugin-react@^6.0.5": "6.1.2_vite@8.3.4_@types+node@26.6.5",
     "npm:@vitejs/plugin-react@^6.1.1": "6.1.2_vite@8.3.4_@types+node@26.6.5",
     "npm:@vitejs/plugin-react@^6.1.2": "6.1.2_vite@8.3.4_@types+node@26.6.5",
@@ -53,6 +54,7 @@
     "npm:vite@8.3.4": "8.3.4_@types+node@26.6.5",
     "npm:vite@^8.2.0": "8.3.4_@types+node@26.6.5",
     "npm:vite@^8.3.0": "8.3.4_@types+node@26.6.5",
+    "npm:vite@^8.3.4": "8.3.4_@types+node@26.6.5",
     "npm:zod@^4.4.3": "4.6.5",
     "npm:zod@^4.6.5": "4.6.5"
   },
@@ -784,7 +786,7 @@
         "http-errors",
         "iconv-lite",
         "on-finished",
-        "qs@6.15.3",
+        "qs",
         "raw-body",
         "type-is"
       ]
@@ -977,7 +979,7 @@
         "once",
         "parseurl",
         "proxy-addr",
-        "qs@6.16.0",
+        "qs",
         "range-parser",
         "router",
         "send",
@@ -1356,13 +1358,6 @@
       "dependencies": [
         "forwarded",
         "ipaddr.js"
-      ]
-    },
-    "qs@6.15.3": {
-      "integrity": "sha512-O9gl3zCl5h5blw1KGUzQKhA5oUXSl8rwUIM5o0S3nCXMliSvy5Dzx7/DJcI+SwgICv+IneSZwhBh1oSyEHA71A==",
-      "dependencies": [
-        "es-define-property",
-        "side-channel"
       ]
     },
     "qs@6.16.0": {

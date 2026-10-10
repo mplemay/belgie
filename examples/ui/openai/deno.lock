@@ -9,6 +9,7 @@
     "npm:@types/react-dom@^19.3.0": "19.3.0_@types+react@19.3.0",
     "npm:@types/react@^19.3.0": "19.3.0",
     "npm:@vitejs/plugin-react@6.1.1": "6.1.1_vite@8.3.4",
+    "npm:@vitejs/plugin-react@6.1.2": "6.1.2_vite@8.3.4",
     "npm:@vitejs/plugin-react@^6.1.1": "6.1.2_vite@8.3.4",
     "npm:@vitejs/plugin-react@^6.1.2": "6.1.2_vite@8.3.4",
     "npm:open@^11.0.4": "11.0.4",
@@ -19,6 +20,7 @@
     "npm:vite@8.3.0": "8.3.0",
     "npm:vite@8.3.4": "8.3.4",
     "npm:vite@^8.3.0": "8.3.4",
+    "npm:vite@^8.3.4": "8.3.4",
     "npm:zod@^4.6.5": "4.6.5"
   },
   "npm": {

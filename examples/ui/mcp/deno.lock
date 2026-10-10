@@ -17,6 +17,7 @@
     "npm:@types/react@^19.3.0": "19.3.0",
     "npm:@vitejs/plugin-react@6": "6.1.2_vite@8.3.4",
     "npm:@vitejs/plugin-react@6.1.1": "6.1.1_vite@8.3.4",
+    "npm:@vitejs/plugin-react@6.1.2": "6.1.2_vite@8.3.4",
     "npm:@vitejs/plugin-react@^6.0.5": "6.1.2_vite@8.3.4",
     "npm:@vitejs/plugin-react@^6.1.1": "6.1.2_vite@8.3.4",
     "npm:@vitejs/plugin-react@^6.1.2": "6.1.2_vite@8.3.4",
@@ -38,6 +39,7 @@
     "npm:vite@8.3.0": "8.3.0",
     "npm:vite@8.3.4": "8.3.4",
     "npm:vite@^8.3.0": "8.3.4",
+    "npm:vite@^8.3.4": "8.3.4",
     "npm:zod@^4.4.3": "4.6.5",
     "npm:zod@^4.6.5": "4.6.5"
   },
@@ -51,18 +53,12 @@
     "@modelcontextprotocol/client@2.3.1": {
       "integrity": "sha512-mIGZXpHsjnZ6lD+gD/WCMpR5k8yVQQ8nNFH1N0Srf7AvnwTUMYD6pvTY8ng2+He5FfV7YMZLmrjL7cLa/cc3dQ==",
       "dependencies": [
-        "@modelcontextprotocol/core@2.3.1",
+        "@modelcontextprotocol/core",
         "cross-spawn",
         "eventsource",
         "eventsource-parser",
         "jose",
         "pkce-challenge",
-        "zod"
-      ]
-    },
-    "@modelcontextprotocol/core@2.0.0": {
-      "integrity": "sha512-pJCEwGG7Lfr/+PQp9ZTwKXNeO5wzbfKL7H3MYpCorM4oFBoQrdjnBgEoqG+RjhsvS1FKrDbKux+M1HhlnGWqcA==",
-      "dependencies": [
         "zod"
       ]
     },
@@ -90,7 +86,6 @@
       "integrity": "sha512-Tn+4+cyhO4f4cQSDxNyLiIfEE+qlTTuIbWBJB8JTinEXOhDYgCT4wDTQplxD9MBYZH5pCYGC59GaxiwIT4bu8w==",
       "dependencies": [
         "@modelcontextprotocol/client",
-        "@modelcontextprotocol/core@2.0.0",
         "@standard-schema/spec",
         "react@19.3.0",
         "react-dom@19.3.0_react@19.3.0",
@@ -267,7 +262,7 @@
         "http-errors",
         "iconv-lite",
         "on-finished",
-        "qs@6.15.3",
+        "qs",
         "raw-body",
         "type-is"
       ]
@@ -424,7 +419,7 @@
         "once",
         "parseurl",
         "proxy-addr",
-        "qs@6.16.0",
+        "qs",
         "range-parser",
         "router",
         "send",
@@ -739,13 +734,6 @@
       "dependencies": [
         "forwarded",
         "ipaddr.js"
-      ]
-    },
-    "qs@6.15.3": {
-      "integrity": "sha512-O9gl3zCl5h5blw1KGUzQKhA5oUXSl8rwUIM5o0S3nCXMliSvy5Dzx7/DJcI+SwgICv+IneSZwhBh1oSyEHA71A==",
-      "dependencies": [
-        "es-define-property",
-        "side-channel"
       ]
     },
     "qs@6.16.0": {
