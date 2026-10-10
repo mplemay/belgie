@@ -20,9 +20,9 @@ deno_lib = { git = "https://github.com/denoland/deno.git", tag = "v2.9.7" }
 deno_npm_installer = { git = "https://github.com/denoland/deno.git", tag = "v2.9.7" }
 deno_resolver = { git = "https://github.com/denoland/deno.git", tag = "v2.9.7", features = ["sync", "graph", "deno_ast"] }
 deno_runtime = { git = "https://github.com/denoland/deno.git", tag = "v2.9.7", default-features = false, features = ["transpile"] }
-pyo3 = { version = "0.29.2", features = ["abi3-py312"] }
+pyo3 = { version = "0.29.3", features = ["abi3-py312"] }
 pyo3-async-runtimes = { version = "0.29", features = ["attributes", "tokio-runtime"] }
-serde_json = "1.0.151"
-sys_traits = { version = "0.1.28", features = ["getrandom", "real", "libc", "winapi"] }
-tokio = { version = "1.53.1", features = ["rt", "sync", "macros", "rt-multi-thread"] }
+serde_json = "1.0.152"
+sys_traits = { version = "0.1.29", features = ["getrandom", "real", "libc", "winapi"] }
+tokio = { version = "1.53.2", features = ["rt", "sync", "macros", "rt-multi-thread"] }
 url = "2.5.8"
