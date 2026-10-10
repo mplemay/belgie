@@ -2,19 +2,25 @@
   "version": "5",
   "specifiers": {
     "npm:@modelcontextprotocol/ext-apps@^1.7.5": "1.7.5_@modelcontextprotocol+sdk@1.32.1__zod@4.6.5_react@19.3.0_react-dom@19.3.0_zod@4.6.5",
+    "npm:@modelcontextprotocol/ext-apps@^2.0.3": "2.0.3_@modelcontextprotocol+client@2.3.1_@modelcontextprotocol+core@2.3.1_react@19.3.0_react-dom@19.3.0_zod@4.6.5",
     "npm:@modelcontextprotocol/sdk@^1.30.0": "1.32.1_zod@4.6.5",
+    "npm:@modelcontextprotocol/sdk@^1.32.1": "1.32.1_zod@4.6.5",
     "npm:@openai/mcp-extensions@0.1": "0.1.0_@modelcontextprotocol+ext-apps@1.7.5__@modelcontextprotocol+sdk@1.32.1___@cfworker+json-schema@4.1.1___zod@4.4.3__react@19.3.0__react-dom@19.3.0__zod@4.4.3__@cfworker+json-schema@4.1.1_@modelcontextprotocol+sdk@1.32.1__@cfworker+json-schema@4.1.1__zod@4.4.3_react@19.3.0_react-dom@19.3.0",
     "npm:@types/react-dom@^19.3.0": "19.3.0_@types+react@19.3.0",
     "npm:@types/react@^19.3.0": "19.3.0",
-    "npm:@vitejs/plugin-react@6.1.1": "6.1.1_vite@8.3.0",
-    "npm:@vitejs/plugin-react@^6.1.1": "6.1.1_vite@8.3.0",
+    "npm:@vitejs/plugin-react@6.1.1": "6.1.1_vite@8.3.4",
+    "npm:@vitejs/plugin-react@6.1.2": "6.1.2_vite@8.3.4",
+    "npm:@vitejs/plugin-react@^6.1.1": "6.1.2_vite@8.3.4",
+    "npm:@vitejs/plugin-react@^6.1.2": "6.1.2_vite@8.3.4",
     "npm:open@^11.0.4": "11.0.4",
     "npm:react-dom@19.3.0": "19.3.0_react@19.3.0",
     "npm:react-dom@^19.3.0": "19.3.0_react@19.3.0",
     "npm:react@19.3.0": "19.3.0",
     "npm:react@^19.3.0": "19.3.0",
     "npm:vite@8.3.0": "8.3.0",
-    "npm:vite@^8.3.0": "8.3.0",
+    "npm:vite@8.3.4": "8.3.4",
+    "npm:vite@^8.3.0": "8.3.4",
+    "npm:vite@^8.3.4": "8.3.4",
     "npm:zod@^4.6.5": "4.6.5"
   },
   "npm": {
@@ -27,14 +33,31 @@
         "hono"
       ]
     },
+    "@modelcontextprotocol/client@2.3.1": {
+      "integrity": "sha512-mIGZXpHsjnZ6lD+gD/WCMpR5k8yVQQ8nNFH1N0Srf7AvnwTUMYD6pvTY8ng2+He5FfV7YMZLmrjL7cLa/cc3dQ==",
+      "dependencies": [
+        "@modelcontextprotocol/core",
+        "cross-spawn",
+        "eventsource",
+        "eventsource-parser",
+        "jose",
+        "pkce-challenge",
+        "zod@4.6.5"
+      ]
+    },
+    "@modelcontextprotocol/core@2.3.1": {
+      "integrity": "sha512-laVmIhPGpWi7rG9q+0UigblRN0Hws/Yjlb6qLFtVqryXVLkc4h+yN8z731POD2LnAGQlFe7/tXhUm7Bi0YB91g==",
+      "dependencies": [
+        "zod@4.6.5"
+      ]
+    },
     "@modelcontextprotocol/ext-apps@1.7.5_@modelcontextprotocol+sdk@1.32.1__@cfworker+json-schema@4.1.1__zod@4.4.3_react@19.3.0_react-dom@19.3.0_zod@4.4.3_@cfworker+json-schema@4.1.1": {
       "integrity": "sha512-TjPH2S2y5UEGKhmI6+XGFuqfqOV4ppe1x6DA3txnUaEWkgtA4G5vo14jGKFZmegdkZ1H4QMLyujLvoU1BEdnAg==",
       "dependencies": [
         "@modelcontextprotocol/sdk@1.32.1_@cfworker+json-schema@4.1.1_zod@4.4.3",
         "@standard-schema/spec",
         "react",
-        "react-dom",
-        "zod@4.4.3"
+        "react-dom"
       ],
       "optionalPeers": [
         "react",
@@ -45,6 +68,21 @@
       "integrity": "sha512-TjPH2S2y5UEGKhmI6+XGFuqfqOV4ppe1x6DA3txnUaEWkgtA4G5vo14jGKFZmegdkZ1H4QMLyujLvoU1BEdnAg==",
       "dependencies": [
         "@modelcontextprotocol/sdk@1.32.1_zod@4.6.5",
+        "@standard-schema/spec",
+        "react",
+        "react-dom",
+        "zod@4.6.5"
+      ],
+      "optionalPeers": [
+        "react",
+        "react-dom"
+      ]
+    },
+    "@modelcontextprotocol/ext-apps@2.0.3_@modelcontextprotocol+client@2.3.1_@modelcontextprotocol+core@2.3.1_react@19.3.0_react-dom@19.3.0_zod@4.6.5": {
+      "integrity": "sha512-Tn+4+cyhO4f4cQSDxNyLiIfEE+qlTTuIbWBJB8JTinEXOhDYgCT4wDTQplxD9MBYZH5pCYGC59GaxiwIT4bu8w==",
+      "dependencies": [
+        "@modelcontextprotocol/client",
+        "@modelcontextprotocol/core",
         "@standard-schema/spec",
         "react",
         "react-dom",
@@ -211,11 +249,18 @@
         "csstype"
       ]
     },
-    "@vitejs/plugin-react@6.1.1_vite@8.3.0": {
+    "@vitejs/plugin-react@6.1.1_vite@8.3.4": {
       "integrity": "sha512-yxLaQV9gkhS8ezJqCM6+ndU7mDY6gqAg75NQ+0IjwEI8IYOmQCgkRwHKVSfWXW076DsqMo0Dk+0FK1U+M5RgFw==",
       "dependencies": [
         "@rolldown/pluginutils",
-        "vite"
+        "vite@8.3.4"
+      ]
+    },
+    "@vitejs/plugin-react@6.1.2_vite@8.3.4": {
+      "integrity": "sha512-fhJNGUdscQa4HkI0xFxwonWyhnVReCPDbXI7FH7jmzpnVCrFQI7PRrhWecO263610vOrs9tr2Y4xcf8uAdFxbw==",
+      "dependencies": [
+        "@rolldown/pluginutils",
+        "vite@8.3.4"
       ]
     },
     "accepts@2.0.0": {
@@ -920,6 +965,20 @@
       ],
       "bin": true
     },
+    "vite@8.3.4": {
+      "integrity": "sha512-IftLE8phJhdNRIGNEV4JCCvfNScoZQVfcXaN8TQropWGJtOHcu+iAB9pHcuGvmEb/kddw0LBe/jS8ztdC6xdiQ==",
+      "dependencies": [
+        "lightningcss",
+        "picomatch",
+        "postcss",
+        "rolldown",
+        "tinyglobby"
+      ],
+      "optionalDependencies": [
+        "fsevents"
+      ],
+      "bin": true
+    },
     "which@2.0.2": {
       "integrity": "sha512-BLI3Tl1TW3Pvl70l3yq3Y64i+awpwXqsGBYWkkqMtnbXgrMD+yj7rhW0kuEDxzJaYXGjEW5ogapKNMEKNMjibA==",
       "dependencies": [
@@ -938,10 +997,7 @@
       ]
     },
     "zod-to-json-schema@3.25.2_zod@4.4.3": {
-      "integrity": "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA==",
-      "dependencies": [
-        "zod@4.4.3"
-      ]
+      "integrity": "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA=="
     },
     "zod-to-json-schema@3.25.2_zod@4.6.5": {
       "integrity": "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA==",

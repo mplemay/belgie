@@ -7,22 +7,22 @@
     "url": "https://github.com/mplemay/belgie/issues"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "6.1.1",
+    "@vitejs/plugin-react": "6.1.2",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "vite": "^8.3.0"
+    "vite": "^8.3.4"
   },
   "description": "Vite plugin and CLI that build React MCP App widgets into self-contained HTML.",
   "devDependencies": {
     "@arethetypeswrong/core": "^0.18.5",
-    "@types/node": "26.6.2",
+    "@types/node": "26.6.5",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
-    "@vitest/coverage-v8": "^4.1.11",
-    "publint": "^0.3.24",
-    "tsdown": "^0.22.14",
+    "@vitest/coverage-v8": "^5.0.3",
+    "publint": "^0.3.25",
+    "tsdown": "^0.23.0",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.3"
   },
   "engines": {
     "node": ">=22"
